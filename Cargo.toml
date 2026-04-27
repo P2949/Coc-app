@@ -1,0 +1,8 @@
+[package]
+name = "coc7e_investigator_creator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.34"
+rand = { version = "0.10.1" }

@@ -1,0 +1,832 @@
+use super::data::*;
+use super::models::*;
+use super::occupations::*;
+use super::ruleset::*;
+use eframe::egui;
+use egui::RichText;
+use std::collections::{HashMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "ui/characteristics.rs"]
+mod characteristics;
+#[path = "ui/concept.rs"]
+mod concept;
+#[path = "ui/occupation.rs"]
+mod occupation;
+#[path = "ui/skills.rs"]
+mod skills;
+#[path = "ui/story_summary.rs"]
+mod story_summary;
+
+pub fn run() -> eframe::Result {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([APP_INITIAL_WIDTH, APP_INITIAL_HEIGHT])
+            .with_min_inner_size([APP_MIN_WINDOW_WIDTH, APP_MIN_WINDOW_HEIGHT]),
+        centered: true,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "CoC7e Investigator Creator",
+        options,
+        Box::new(|cc| Ok(Box::new(CoC7eApp::new(cc)))),
+    )
+}
+
+impl CoC7eApp {
+    pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        apply_dark_theme(&cc.egui_ctx);
+
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos() as u64)
+            .unwrap_or(0xC0C7_E7E5_1234_5678);
+
+        validate_skill_constants();
+        let occupations = build_occupations();
+        validate_occupations(&occupations);
+
+        Self::fresh(occupations, seed | 1)
+    }
+
+    pub(crate) fn fresh(occupations: Vec<Occupation>, rng_state: u64) -> Self {
+        let age_index = get_age_bracket_index(30);
+
+        Self {
+            step: 1,
+            concept: Concept::default(),
+            char_method: CharMethod::Roll,
+            chars: CharacteristicValues::default(),
+            char_rolls: HashMap::new(),
+            luck_state: LuckState::default(),
+            age_deductions: empty_deductions_for(AGE_BRACKETS[age_index]),
+            edu_bonus: 0,
+            edu_check_rolls: Vec::new(),
+            occupation_id: String::new(),
+            formula_key: FormulaKey::Edu4,
+            occupation_choices: HashMap::new(),
+            custom_occupation: CustomOccupation::default(),
+            allocations: AllocationState::default(),
+            backstory: HashMap::new(),
+            occupations,
+            last_age_bracket_index: age_index,
+            frame_max_reachable_step: 2,
+            rng: AppRng::seeded(rng_state),
+        }
+    }
+
+    pub(crate) fn sync_age_bracket(&mut self) {
+        let index = get_age_bracket_index(self.concept.age);
+        if self.last_age_bracket_index != index {
+            self.age_deductions = empty_deductions_for(AGE_BRACKETS[index]);
+            self.edu_bonus = 0;
+            self.edu_check_rolls.clear();
+            self.luck_state.value = None;
+            self.luck_state.rolls.clear();
+            self.last_age_bracket_index = index;
+        }
+    }
+
+    pub(crate) fn age_bracket(&self) -> AgeBracket {
+        AGE_BRACKETS[self.last_age_bracket_index]
+    }
+
+    pub(crate) fn roll_die(&mut self, sides: u32) -> u32 {
+        self.rng.roll_inclusive(sides)
+    }
+
+    pub(crate) fn roll_characteristic(&mut self, def: CharacteristicDef) -> DiceResult {
+        match def.dice {
+            DiceKind::ThreeD6 => {
+                let rolls = vec![self.roll_die(6), self.roll_die(6), self.roll_die(6)];
+                let raw = rolls.iter().sum::<u32>();
+                DiceResult {
+                    rolls,
+                    plus_six: false,
+                    value: (raw as i32) * 5,
+                    kept: None,
+                }
+            }
+            DiceKind::TwoD6Plus6 => {
+                let rolls = vec![self.roll_die(6), self.roll_die(6)];
+                let raw = rolls.iter().sum::<u32>() + 6;
+                DiceResult {
+                    rolls,
+                    plus_six: true,
+                    value: (raw as i32) * 5,
+                    kept: None,
+                }
+            }
+        }
+    }
+
+    pub(crate) fn roll_luck_attempt(&mut self) -> DiceResult {
+        let rolls = vec![self.roll_die(6), self.roll_die(6), self.roll_die(6)];
+        let raw = rolls.iter().sum::<u32>();
+        DiceResult {
+            rolls,
+            plus_six: false,
+            value: (raw as i32) * 5,
+            kept: None,
+        }
+    }
+
+    pub(crate) fn roll_luck(&mut self) {
+        let bracket = self.age_bracket();
+        let mut attempts = vec![self.roll_luck_attempt()];
+        if bracket.luck_advantage {
+            attempts.push(self.roll_luck_attempt());
+        }
+
+        let best_index = attempts
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, roll)| roll.value)
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+
+        for (index, roll) in attempts.iter_mut().enumerate() {
+            roll.kept = Some(index == best_index);
+        }
+
+        self.luck_state.value = attempts.get(best_index).map(|roll| roll.value);
+        self.luck_state.rolls = attempts;
+    }
+
+    pub(crate) fn clear_edu_age_checks(&mut self) {
+        self.edu_bonus = 0;
+        self.edu_check_rolls.clear();
+    }
+
+    pub(crate) fn set_char_value(&mut self, key: &str, value: i32) {
+        if let Some(def) = CHARACTERISTICS.iter().find(|item| item.key.key() == key) {
+            let next_value = clamp_step_5(value, def.min, def.max);
+            let old_value = Some(self.chars.get_char(def.key));
+            let had_roll = self.char_rolls.remove(key).is_some();
+
+            if old_value == Some(next_value) {
+                if had_roll {
+                    self.char_method = CharMethod::Mixed;
+                    if key == "EDU" {
+                        self.clear_edu_age_checks();
+                    }
+                }
+                return;
+            }
+
+            self.chars.set_char(def.key, next_value);
+
+            if had_roll || matches!(self.char_method, CharMethod::Roll | CharMethod::QuickArray) {
+                self.char_method = CharMethod::Mixed;
+            }
+
+            if key == "EDU" {
+                self.clear_edu_age_checks();
+            }
+        }
+    }
+
+    pub(crate) fn char_value(&self, key: &str) -> i32 {
+        Characteristic::from_key(key).map_or(0, |id| self.chars.get_char(id))
+    }
+
+    pub(crate) fn final_chars(&self) -> CharacteristicValues {
+        let bracket = self.age_bracket();
+        let mut out = self.chars.clone();
+
+        for key in bracket.physical_from {
+            let value = out.get_char(*key);
+            let deduction = self.effective_physical_deduction_for(*key);
+            out.set_char(*key, (value - deduction).clamp(1, MAX_CREATION_VALUE));
+        }
+
+        let app = out.get_char(Characteristic::App);
+        out.set_char(
+            Characteristic::App,
+            (app - bracket.app_penalty).clamp(1, MAX_CREATION_VALUE),
+        );
+
+        let edu = out.get_char(Characteristic::Edu);
+        out.set_char(
+            Characteristic::Edu,
+            (edu - bracket.edu_penalty + self.edu_bonus).clamp(1, MAX_CREATION_VALUE),
+        );
+
+        out
+    }
+
+    pub(crate) fn selected_occupation(&self) -> Option<Occupation> {
+        if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            return Some(self.build_custom_occupation());
+        }
+        self.occupations
+            .iter()
+            .find(|occ| occ.name == self.occupation_id)
+            .cloned()
+    }
+
+    pub(crate) fn selected_occupation_name(&self) -> String {
+        if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            let trimmed = self.custom_occupation.name.trim();
+            if trimmed.is_empty() {
+                "Custom Occupation".to_owned()
+            } else {
+                trimmed.to_owned()
+            }
+        } else if self.occupation_id.is_empty() {
+            "No occupation".to_owned()
+        } else {
+            self.occupation_id.clone()
+        }
+    }
+
+    pub(crate) fn build_custom_occupation(&self) -> Occupation {
+        let min = self.custom_occupation.credit_min.clamp(0, 99);
+        let max = self.custom_occupation.credit_max.clamp(0, 99);
+        let skills = unique_strings(
+            self.custom_occupation
+                .skills
+                .iter()
+                .map(|skill| skill.trim().to_owned())
+                .filter(|skill| !skill.is_empty()),
+        );
+
+        Occupation {
+            name: self.selected_occupation_name(),
+            credit: (min.min(max), min.max(max)),
+            formula_keys: vec![self.custom_occupation.formula_key],
+            slots: skills.into_iter().map(Slot::Skill).collect(),
+        }
+    }
+
+    pub(crate) fn set_occupation(&mut self, next_id: String) {
+        self.occupation_id = next_id;
+        self.formula_key = if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            self.custom_occupation.formula_key
+        } else {
+            self.occupations
+                .iter()
+                .find(|occ| occ.name == self.occupation_id)
+                .and_then(|occ| occ.formula_keys.first().copied())
+                .unwrap_or(FormulaKey::Edu4)
+        };
+        self.occupation_choices.clear();
+        self.allocations.occupation_points.clear();
+    }
+
+    pub(crate) fn resolved_occupation_skills(&self) -> Vec<String> {
+        self.selected_occupation()
+            .as_ref()
+            .map_or_else(Vec::new, |occupation| {
+                self.resolved_occupation_skills_for(occupation)
+            })
+    }
+
+    pub(crate) fn resolved_occupation_skills_for(&self, occupation: &Occupation) -> Vec<String> {
+        let mut resolved = Vec::new();
+        for slot in &occupation.slots {
+            match slot {
+                Slot::Skill(name) => resolved.push(name.clone()),
+                Slot::Choice {
+                    id, options, count, ..
+                } => {
+                    for index in 0..*count {
+                        let key = ChoiceKey::new(id.to_owned(), index);
+                        if let Some(value) = self.occupation_choices.get(&key) {
+                            let value = value.trim();
+                            if choice_value_is_valid(options, value) {
+                                resolved.push(value.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        unique_strings(resolved)
+    }
+
+    pub(crate) fn occupation_skill_set(&self) -> HashSet<String> {
+        let mut set: HashSet<String> = self.resolved_occupation_skills().into_iter().collect();
+        set.insert("Credit Rating".to_owned());
+        set
+    }
+
+    pub(crate) fn unresolved_choice_count_for(&self, occupation: &Occupation) -> usize {
+        occupation
+            .slots
+            .iter()
+            .map(|slot| match slot {
+                Slot::Choice {
+                    id, options, count, ..
+                } => (0..*count)
+                    .filter(|index| {
+                        let key = ChoiceKey::new(id.to_owned(), *index);
+                        self.occupation_choices
+                            .get(&key)
+                            .is_none_or(|value| !choice_value_is_valid(options, value))
+                    })
+                    .count(),
+                Slot::Skill(_) => 0,
+            })
+            .sum()
+    }
+
+    pub(crate) fn occupation_slot_count_for(&self, occupation: &Occupation) -> usize {
+        occupation
+            .slots
+            .iter()
+            .map(|slot| match slot {
+                Slot::Skill(_) => 1,
+                Slot::Choice { count, .. } => *count,
+            })
+            .sum()
+    }
+
+    pub(crate) fn required_occupation_skill_count_for(&self, occupation: &Occupation) -> usize {
+        // A custom occupation's built Occupation only contains filled unique skills,
+        // but the creator still requires all eight custom skill slots to be filled.
+        if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            self.custom_occupation.skills.len()
+        } else {
+            self.occupation_slot_count_for(occupation)
+        }
+    }
+
+    pub(crate) fn unique_occupation_shortfall_for(&self, occupation: &Occupation) -> usize {
+        self.required_occupation_skill_count_for(occupation)
+            .saturating_sub(self.resolved_occupation_skills_for(occupation).len())
+    }
+
+    pub(crate) fn skill_rows_for(&self, final_chars: &CharacteristicValues) -> Vec<SkillRow> {
+        SKILL_SPECS
+            .iter()
+            .map(|skill| {
+                let base = get_base_skill(skill.name, final_chars);
+                let occ_add = *self
+                    .allocations
+                    .occupation_points
+                    .get(skill.name)
+                    .unwrap_or(&0);
+                let personal_add = *self
+                    .allocations
+                    .personal_points
+                    .get(skill.name)
+                    .unwrap_or(&0);
+                SkillRow {
+                    name: skill.name.to_owned(),
+                    base,
+                    occ_add,
+                    personal_add,
+                    total: base + occ_add + personal_add,
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn derived_for(
+        &self,
+        final_chars: &CharacteristicValues,
+        skill_rows: &[SkillRow],
+    ) -> Derived {
+        let mythos = skill_rows
+            .iter()
+            .find(|row| row.name == "Cthulhu Mythos")
+            .map(|row| row.total)
+            .unwrap_or(0);
+        calculate_derived(final_chars, self.age_bracket(), mythos)
+    }
+
+    pub(crate) fn sheet_math(&self) -> SheetMath {
+        self.sheet_math_from(self.final_chars())
+    }
+
+    pub(crate) fn sheet_math_from(&self, final_chars: CharacteristicValues) -> SheetMath {
+        let skill_rows = self.skill_rows_for(&final_chars);
+        let derived = self.derived_for(&final_chars, &skill_rows);
+        let selected_occupation = self.selected_occupation();
+        let credit_range = selected_occupation
+            .as_ref()
+            .map_or((0, 99), |occupation| occupation.credit);
+        let unresolved_choices = selected_occupation
+            .as_ref()
+            .map_or(0, |occupation| self.unresolved_choice_count_for(occupation));
+        let occupation_shortfall = selected_occupation.as_ref().map_or(0, |occupation| {
+            self.unique_occupation_shortfall_for(occupation)
+        });
+        let occupation_skill_set =
+            selected_occupation
+                .as_ref()
+                .map_or_else(HashSet::new, |occupation| {
+                    let mut set: HashSet<String> = self
+                        .resolved_occupation_skills_for(occupation)
+                        .into_iter()
+                        .collect();
+                    set.insert("Credit Rating".to_owned());
+                    set
+                });
+        let occupation_budget = self.occupation_budget_for(&final_chars);
+        let personal_budget = self.personal_budget_for(&final_chars);
+        let credit_rating = self.credit_rating_for(&final_chars);
+
+        SheetMath {
+            final_chars,
+            skill_rows,
+            derived,
+            selected_occupation,
+            credit_range,
+            unresolved_choices,
+            occupation_shortfall,
+            occupation_skill_set,
+            occupation_budget,
+            personal_budget,
+            credit_rating,
+        }
+    }
+
+    pub(crate) fn point_buy_spent(&self) -> i32 {
+        CHARACTERISTICS
+            .iter()
+            .map(|def| self.chars.get_char(def.key))
+            .sum()
+    }
+
+    pub(crate) fn has_all_chars(&self) -> bool {
+        CHARACTERISTICS
+            .iter()
+            .all(|def| self.chars.get_char(def.key) > 0)
+    }
+
+    pub(crate) fn assigned_physical_deduction_total(&self) -> i32 {
+        self.age_bracket()
+            .physical_from
+            .iter()
+            .map(|key| self.age_deductions.get_char(*key))
+            .sum()
+    }
+
+    pub(crate) fn effective_physical_deduction_for(&self, key: Characteristic) -> i32 {
+        let assigned = self.age_deductions.get_char(key);
+        let max_effective = max_physical_deduction_for_raw(self.chars.get_char(key));
+        clamp_step_5(assigned, 0, max_effective)
+    }
+
+    pub(crate) fn physical_deduction_total(&self) -> i32 {
+        self.age_bracket()
+            .physical_from
+            .iter()
+            .map(|key| self.effective_physical_deduction_for(*key))
+            .sum()
+    }
+
+    pub(crate) fn edu_age_checks_complete(&self) -> bool {
+        let bracket = self.age_bracket();
+        bracket.edu_checks == 0 || self.edu_check_rolls.len() == bracket.edu_checks
+    }
+
+    pub(crate) fn occupation_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
+        self.formula_key.calculate(final_chars)
+    }
+
+    pub(crate) fn personal_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
+        final_chars.get_char(Characteristic::Int) * 2
+    }
+
+    pub(crate) fn used_occupation_points(&self) -> i32 {
+        self.allocations.occupation_points.values().sum()
+    }
+
+    pub(crate) fn used_personal_points(&self) -> i32 {
+        self.allocations.personal_points.values().sum()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn credit_rating(&self) -> i32 {
+        self.credit_rating_for(&self.final_chars())
+    }
+
+    pub(crate) fn credit_rating_for(&self, final_chars: &CharacteristicValues) -> i32 {
+        get_base_skill("Credit Rating", final_chars)
+            + *self
+                .allocations
+                .occupation_points
+                .get("Credit Rating")
+                .unwrap_or(&0)
+    }
+
+    pub(crate) fn apply_characteristic_preset(
+        &mut self,
+        method: CharMethod,
+        preset: &[(&str, i32)],
+    ) {
+        self.char_method = method;
+        let mut chars = CharacteristicValues::default();
+        for (key, value) in preset {
+            let def = CHARACTERISTICS
+                .iter()
+                .find(|def| def.key.key() == *key)
+                .unwrap_or_else(|| panic!("unknown characteristic key in preset: {key}"));
+            chars.set_char(def.key, clamp_step_5(*value, def.min, def.max));
+        }
+        self.chars = chars;
+        self.char_rolls.clear();
+        self.clear_edu_age_checks();
+    }
+
+    pub(crate) fn roll_all_characteristics(&mut self) {
+        let mut chars = CharacteristicValues::default();
+        let mut rolls = HashMap::new();
+
+        for def in CHARACTERISTICS {
+            let result = self.roll_characteristic(*def);
+            chars.set_char(def.key, result.value);
+            rolls.insert(def.key.key().to_owned(), result);
+        }
+
+        self.char_method = CharMethod::Roll;
+        self.chars = chars;
+        self.char_rolls = rolls;
+        self.clear_edu_age_checks();
+    }
+
+    pub(crate) fn roll_single_characteristic(&mut self, key: &str) {
+        if let Some(def) = CHARACTERISTICS.iter().find(|def| def.key.key() == key) {
+            let result = self.roll_characteristic(*def);
+            self.chars.set_char(def.key, result.value);
+            self.char_rolls.insert(key.to_owned(), result);
+
+            if self.char_method != CharMethod::Roll {
+                self.char_method = CharMethod::Mixed;
+            }
+            if key == "EDU" {
+                self.clear_edu_age_checks();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_edu_age_check_rolls(&mut self, scripted_rolls: &[(i32, i32)]) {
+        let bracket = self.age_bracket();
+        let raw_edu = self.char_value("EDU");
+        if raw_edu == 0 || bracket.edu_checks == 0 {
+            return;
+        }
+
+        let starting_edu = (raw_edu - bracket.edu_penalty).clamp(1, MAX_CREATION_VALUE);
+        let mut current_edu = starting_edu;
+        let mut rolls = Vec::new();
+
+        for &(d100, improvement_gain) in scripted_rolls.iter().take(bracket.edu_checks) {
+            let d100 = d100.clamp(1, 100);
+            let improved = d100 > current_edu;
+            let gain = if improved {
+                improvement_gain.clamp(1, 10)
+            } else {
+                0
+            };
+            current_edu = (current_edu + gain).clamp(1, MAX_CREATION_VALUE);
+            rolls.push(EduCheckRoll {
+                d100,
+                improved,
+                gain,
+                resulting_edu: current_edu,
+            });
+        }
+
+        self.edu_bonus = (current_edu - starting_edu).max(0);
+        self.edu_check_rolls = rolls;
+    }
+
+    pub(crate) fn roll_edu_age_checks(&mut self) {
+        let bracket = self.age_bracket();
+        let raw_edu = self.char_value("EDU");
+        if raw_edu == 0 || bracket.edu_checks == 0 {
+            return;
+        }
+
+        let starting_edu = (raw_edu - bracket.edu_penalty).clamp(1, MAX_CREATION_VALUE);
+        let mut current_edu = starting_edu;
+        let mut rolls = Vec::new();
+
+        for _ in 0..bracket.edu_checks {
+            let d100 = self.roll_die(100) as i32;
+            let improved = d100 > current_edu;
+            let gain = if improved {
+                self.roll_die(10) as i32
+            } else {
+                0
+            };
+
+            current_edu = (current_edu + gain).clamp(1, MAX_CREATION_VALUE);
+            rolls.push(EduCheckRoll {
+                d100,
+                improved,
+                gain,
+                resulting_edu: current_edu,
+            });
+        }
+
+        self.edu_bonus = (current_edu - starting_edu).max(0);
+        self.edu_check_rolls = rolls;
+    }
+
+    pub(crate) fn prune_occupation_allocations(&mut self) {
+        let allowed = self.occupation_skill_set();
+        self.allocations
+            .occupation_points
+            .retain(|skill, value| allowed.contains(skill) && *value > 0);
+    }
+
+    pub(crate) fn apply_quick_skill_package(&mut self) {
+        let Some(occupation) = self.selected_occupation() else {
+            return;
+        };
+
+        if self.unresolved_choice_count_for(&occupation) > 0
+            || self.unique_occupation_shortfall_for(&occupation) > 0
+        {
+            return;
+        }
+
+        let package_values = [70, 60, 60, 50, 50, 50, 40, 40];
+        let final_chars = self.final_chars();
+        let mut skill_order = self.resolved_occupation_skills_for(&occupation);
+        skill_order.sort_by(|left, right| {
+            get_base_skill(left, &final_chars)
+                .cmp(&get_base_skill(right, &final_chars))
+                .then_with(|| left.cmp(right))
+        });
+
+        let mut next = HashMap::new();
+        if occupation.credit.0 > 0 {
+            next.insert("Credit Rating".to_owned(), occupation.credit.0);
+        }
+
+        for (skill, target) in skill_order.into_iter().zip(package_values) {
+            let base = get_base_skill(&skill, &final_chars);
+            let add = (target - base).max(0);
+            if add > 0 {
+                next.insert(skill, add);
+            }
+        }
+
+        self.allocations.occupation_points = next;
+    }
+
+    pub(crate) fn reset_investigator(&mut self) {
+        let occupations = std::mem::take(&mut self.occupations);
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos() as u64)
+            .unwrap_or(0xC0C7_E7E5_1234_5678);
+        *self = Self::fresh(occupations, seed | 1);
+    }
+
+    pub(crate) fn max_reachable_step(&self) -> usize {
+        let selected = self.selected_occupation();
+
+        if !self.has_all_chars() {
+            return 2;
+        }
+
+        let Some(occupation) = selected.as_ref() else {
+            return 3;
+        };
+
+        let unresolved = self.unresolved_choice_count_for(occupation);
+        let shortfall = self.unique_occupation_shortfall_for(occupation);
+
+        if unresolved > 0 || shortfall > 0 {
+            return 4;
+        }
+
+        // Step 5, Backstory, is intentionally optional.
+        // Summary unlocks once characteristics, occupation choices, required physical age
+        // deductions, and required EDU age checks are resolved; remaining allocation,
+        // credit, Luck, and skill-cap issues are surfaced as rule checks on the Summary page.
+        let physical_complete =
+            self.physical_deduction_total() == self.age_bracket().physical_deduct;
+        if physical_complete && self.edu_age_checks_complete() {
+            6
+        } else {
+            5
+        }
+    }
+
+    pub(crate) fn refresh_reachability(&mut self) {
+        self.frame_max_reachable_step = self.max_reachable_step();
+        if self.step > self.frame_max_reachable_step {
+            self.step = self.frame_max_reachable_step;
+        }
+    }
+
+    pub(crate) fn top_bar(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(12.0);
+            ui.label(
+                RichText::new("Chaosium · Call of Cthulhu 7th Edition")
+                    .size(11.0)
+                    .color(FAINT)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new("Investigator Creator")
+                    .size(32.0)
+                    .color(TEXT)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new("Rules-aware character creation helper")
+                    .size(14.0)
+                    .color(MUTED),
+            );
+            ui.add_space(10.0);
+        });
+    }
+
+    pub(crate) fn step_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            let max_reachable = self.frame_max_reachable_step;
+            for (index, label) in STEPS.iter().enumerate() {
+                let step_num = index + 1;
+                let selected = self.step == step_num;
+                let enabled = step_num <= max_reachable;
+                let text = if step_num < self.step {
+                    format!("✓ {label}")
+                } else {
+                    format!("{step_num}. {label}")
+                };
+                let response = ui.selectable_label(
+                    selected,
+                    RichText::new(text).color(if selected {
+                        ACCENT
+                    } else if enabled {
+                        MUTED
+                    } else {
+                        FAINT
+                    }),
+                );
+                if enabled && response.clicked() {
+                    self.step = step_num;
+                }
+            }
+        });
+        ui.add_space(10.0);
+    }
+
+    pub(crate) fn navigation(&mut self, ui: &mut egui::Ui) {
+        self.refresh_reachability();
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if self.step < STEPS.len()
+                    && ui
+                        .add_enabled(
+                            self.step < self.frame_max_reachable_step,
+                            egui::Button::new("Continue →"),
+                        )
+                        .clicked()
+                {
+                    self.step = (self.step + 1).min(STEPS.len());
+                }
+                if self.step > 1 && ui.button("← Back").clicked() {
+                    self.step = self.step.saturating_sub(1).max(1);
+                }
+            });
+        });
+    }
+}
+
+impl eframe::App for CoC7eApp {
+    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.sync_age_bracket();
+        self.refresh_reachability();
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(BG))
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .min_scrolled_width(APP_CONTENT_WIDTH)
+                    .show(ui, |ui| {
+                        ui.set_min_width(APP_CONTENT_WIDTH);
+                        ui.set_max_width(APP_CONTENT_WIDTH);
+
+                        self.top_bar(ui);
+                        self.step_bar(ui);
+
+                        match self.step {
+                            1 => self.render_concept(ui),
+                            2 => self.render_characteristics(ui),
+                            3 => self.render_occupation(ui),
+                            4 => self.render_skills(ui),
+                            5 => self.render_backstory(ui),
+                            6 => self.render_summary(ui),
+                            _ => self.step = 1,
+                        }
+                    });
+            });
+    }
+}
