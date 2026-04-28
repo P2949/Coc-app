@@ -1,20 +1,34 @@
+enabled = true
+
 name = "coc7e-investigator-creator"
 product-name = "CoC7e Investigator Creator"
 identifier = "io.github.p2949.coc7e-investigator-creator"
 version = "0.1.0"
+
 description = "A desktop Call of Cthulhu 7th Edition investigator creator."
 long-description = "A native Rust desktop helper for building Call of Cthulhu 7th Edition investigators. It supports rules-aware characteristics, age adjustments, occupation choices, skill allocation, derived stats, backstory fields, and a copyable summary."
+
 homepage = "https://github.com/P2949/Coc-app"
 authors = ["P2949"]
 publisher = "P2949"
 license-file = "LICENSE"
 category = "Utility"
+
+# Let cargo-packager choose the normal package set per OS:
+# Linux: deb/AppImage/Pacman
+# Windows: NSIS
+# macOS: app/dmg
+formats = ["default"]
+
 icons = ["assets/icon.png"]
+
 out-dir = "dist/installers"
 binaries-dir = "."
+
 before-packaging-command = "cargo build --release --locked"
 
 [[binaries]]
+# Keep this path without .exe. cargo-packager handles platform differences.
 path = "target/release/coc7e_investigator_creator"
 main = true
 

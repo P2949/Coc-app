@@ -171,11 +171,26 @@ jobs:
 
       - name: Install cargo-packager
         shell: bash
-        run: cargo install cargo-packager --locked
+        run: |
+          set -euo pipefail
+          cargo install cargo-packager --locked
+          cargo packager --version
+
+      - name: Verify packager config is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwd
+          ls -la
+          test -f Packager.toml
+          echo "---- Packager.toml ----"
+          sed -n '1,220p' Packager.toml
 
       - name: Build installer packages
         shell: bash
-        run: cargo packager --release
+        run: |
+          set -euo pipefail
+          cargo packager --config Packager.toml --release
 
       - name: Show installer artifacts
         shell: bash
