@@ -1,1 +1,15 @@
 /target
+/dist
+/release
+
+# Local editor / OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local logs and temporary files
+*.log
+*.tmp

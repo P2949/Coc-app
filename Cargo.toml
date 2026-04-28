@@ -2,7 +2,17 @@
 name = "coc7e_investigator_creator"
 version = "0.1.0"
 edition = "2024"
+description = "A desktop Call of Cthulhu 7th Edition investigator creator."
+repository = "https://github.com/P2949/Coc-app"
+readme = "README.md"
+publish = false
 
 [dependencies]
 eframe = "0.34"
-rand = { version = "0.10.1" }
+rand = "0.10.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
