@@ -42,10 +42,14 @@ jobs:
       - name: Install Rust stable
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt clippy
+          rustup toolchain install stable --profile minimal
+          rustup component add rustfmt --toolchain stable
+          rustup component add clippy --toolchain stable
           rustup default stable
           rustc --version
           cargo --version
+          cargo fmt --version
+          cargo clippy --version
 
       - name: Check formatting
         run: cargo fmt --all -- --check
