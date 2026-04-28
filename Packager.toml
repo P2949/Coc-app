@@ -44,4 +44,4 @@ depends = [
 ]
 
 [nsis]
-install-mode = "currentUser"
+installMode = "currentUser"
