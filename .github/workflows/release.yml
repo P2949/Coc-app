@@ -186,11 +186,54 @@ jobs:
           echo "---- Packager.toml ----"
           sed -n '1,220p' Packager.toml
 
+      - name: Prepare CI packager config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo build --release --locked
+
+          mkdir -p dist/packager-bin
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp -v "target/release/coc7e_investigator_creator.exe" \
+                  "dist/packager-bin/coc7e_investigator_creator.exe"
+          else
+            cp -v "target/release/coc7e_investigator_creator" \
+                  "dist/packager-bin/coc7e_investigator_creator"
+            chmod +x "dist/packager-bin/coc7e_investigator_creator"
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+
+          src = Path("Packager.toml")
+          dst = Path("Packager.ci.toml")
+
+          text = src.read_text()
+
+          # In CI, build explicitly above and package from a stable staging dir.
+          text = text.replace('before-packaging-command = "cargo build --release --locked"\n', '')
+          text = text.replace('binaries-dir = "."', 'binaries-dir = "dist/packager-bin"')
+          text = text.replace(
+              'path = "target/release/coc7e_investigator_creator"',
+              'path = "coc7e_investigator_creator"',
+          )
+
+          dst.write_text(text)
+          PY
+
+          echo "---- Packager.ci.toml ----"
+          sed -n '1,220p' Packager.ci.toml
+
+          echo "---- staged binaries ----"
+          find dist/packager-bin -maxdepth 2 -type f -print
+
       - name: Build installer packages
         shell: bash
         run: |
           set -euo pipefail
-          cargo packager --config Packager.toml --release
+          cargo packager --config Packager.ci.toml --release
 
       - name: Show installer artifacts
         shell: bash
