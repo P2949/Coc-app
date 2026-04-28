@@ -8,6 +8,8 @@ The app is written in Rust with `eframe`/`egui`. It focuses on rules-aware inves
 
 This is a desktop binary application, not a published Cargo library. The crate is marked `publish = false` and is intended to be distributed through GitHub Releases.
 
+Official release binaries are distributed at no cost. The source code is free software under the GNU General Public License v3.0 or later.
+
 ## Requirements for local development
 
 Install a current stable Rust toolchain:
@@ -58,6 +60,34 @@ On Windows, the executable is:
 target\release\coc7e_investigator_creator.exe
 ```
 
+## Installer packaging
+
+Installer packaging is configured through `Packager.toml` and uses `cargo-packager`.
+
+Install the packager locally with:
+
+```bash
+cargo install cargo-packager --locked
+```
+
+Then build installer packages for the current platform with:
+
+```bash
+cargo packager --release
+```
+
+By default, `cargo-packager` creates the platform-default package formats:
+
+- Linux: `.deb`, `.AppImage`, and Pacman package output
+- Windows: NSIS `.exe` installer
+- macOS: `.app` bundle and `.dmg`
+
+Generated packages are written under:
+
+```text
+dist/installers
+```
+
 ## Release process
 
 Releases are created from Git tags.
@@ -72,23 +102,29 @@ Releases are created from Git tags.
    cargo build --release --locked
    ```
 
-3. Create and push a version tag:
+3. Update both `Cargo.toml` and `Packager.toml` to the release version.
+4. Create and push a version tag:
 
    ```bash
    git tag v0.1.0
    git push origin v0.1.0
    ```
 
-4. The GitHub Actions release workflow will build Linux, Windows, and macOS artifacts and attach them to a GitHub Release.
+5. The GitHub Actions release workflow will build raw Linux, Windows, and macOS archives, build installer packages, and attach all artifacts to a GitHub Release.
 
 ## Downloading release builds
 
 After a tag build finishes, download the appropriate artifact from the repository's Releases page:
 
-- Linux: `.tar.gz`
-- Windows: `.zip`
-- macOS: `.tar.gz`
+- Linux raw archive: `.tar.gz`
+- Linux installers/packages: `.deb`, `.AppImage`, and Pacman package output
+- Windows raw archive: `.zip`
+- Windows installer: NSIS `.exe`
+- macOS raw archive: `.tar.gz`
+- macOS app bundle / installer: `.app` / `.dmg`
 
 ## License
 
-No license file has been added yet. Before distributing public binaries broadly, choose and add a `LICENSE` file.
+CoC7e Investigator Creator is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or, at your option, any later version.
+
+See [`LICENSE`](LICENSE) for the full license text.

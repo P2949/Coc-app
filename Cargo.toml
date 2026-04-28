@@ -5,6 +5,7 @@ edition = "2024"
 description = "A desktop Call of Cthulhu 7th Edition investigator creator."
 repository = "https://github.com/P2949/Coc-app"
 readme = "README.md"
+license = "GPL-3.0-or-later"
 publish = false
 
 [dependencies]
