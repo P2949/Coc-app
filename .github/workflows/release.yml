@@ -1,23 +1,43 @@
 name: Release
 
+run-name: >-
+  Release
+  ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  ${{ github.event_name == 'workflow_dispatch' && inputs.publish == false && '(dry run)' || '' }}
+
 on:
   push:
     tags:
       - 'v*'
+
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to release, for example v0.1.0'
+        description: 'Version/tag label, for example v0.1.0-test or v0.1.0'
         required: true
         type: string
+      publish:
+        description: 'Create or update a GitHub Release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  APP_NAME: coc7e-investigator-creator
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
     name: Build ${{ matrix.artifact_suffix }}
     runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
@@ -26,10 +46,12 @@ jobs:
             artifact_suffix: linux-x86_64
             binary_name: coc7e_investigator_creator
             archive_ext: tar.gz
+
           - os: windows-latest
             artifact_suffix: windows-x86_64
             binary_name: coc7e_investigator_creator.exe
             archive_ext: zip
+
           - os: macos-latest
             artifact_suffix: macos
             binary_name: coc7e_investigator_creator
@@ -39,7 +61,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          # Manual dry-run builds from the selected branch/ref.
+          # Manual publish=true builds from the existing tag supplied in inputs.tag.
+          # Tag pushes build from the pushed tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && inputs.tag || github.ref }}
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -55,6 +80,7 @@ jobs:
       - name: Install Rust stable
         shell: bash
         run: |
+          set -euo pipefail
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustc --version
@@ -68,12 +94,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP_NAME="coc7e-investigator-creator"
-          TAG_NAME="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG_NAME="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           VERSION="${TAG_NAME#v}"
           STAGING_DIR="dist/${APP_NAME}-${VERSION}-${{ matrix.artifact_suffix }}"
 
           mkdir -p "$STAGING_DIR"
+
           cp "target/release/${{ matrix.binary_name }}" "$STAGING_DIR/"
           cp README.md RELEASE.md LICENSE "$STAGING_DIR/"
 
@@ -91,20 +117,24 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.artifact_suffix }}
-          path: dist/*${{ matrix.archive_ext }}
+          path: dist/*.${{ matrix.archive_ext }}
           if-no-files-found: error
+          retention-days: 14
 
   installers:
     name: Build installers (${{ matrix.artifact_suffix }})
     runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             artifact_suffix: linux-installers
+
           - os: windows-latest
             artifact_suffix: windows-installer
+
           - os: macos-latest
             artifact_suffix: macos-installers
 
@@ -112,7 +142,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          # Manual dry-run builds from the selected branch/ref.
+          # Manual publish=true builds from the existing tag supplied in inputs.tag.
+          # Tag pushes build from the pushed tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && inputs.tag || github.ref }}
 
       - name: Install Linux desktop/package dependencies
         if: runner.os == 'Linux'
@@ -124,11 +157,13 @@ jobs:
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
             libxkbcommon-dev
+
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
 
       - name: Install Rust stable
         shell: bash
         run: |
+          set -euo pipefail
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustc --version
@@ -144,7 +179,7 @@ jobs:
 
       - name: Show installer artifacts
         shell: bash
-        run: find dist/installers -maxdepth 4 -type f -print
+        run: find dist/installers -maxdepth 5 -type f -print
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -152,13 +187,16 @@ jobs:
           name: installers-${{ matrix.artifact_suffix }}
           path: dist/installers/**
           if-no-files-found: error
+          retention-days: 14
 
   release:
-    name: Create GitHub Release
+    name: Gather, checksum, attest, and optionally publish
     runs-on: ubuntu-latest
+
     needs:
       - build
       - installers
+
     permissions:
       contents: write
       id-token: write
@@ -168,40 +206,85 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          # Manual dry-run builds from the selected branch/ref.
+          # Manual publish=true builds from the existing tag supplied in inputs.tag.
+          # Tag pushes build from the pushed tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && inputs.tag || github.ref }}
 
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist
+          path: dist/incoming
           merge-multiple: true
 
-      - name: Show release artifacts
-        run: find dist -maxdepth 5 -type f -print
+      - name: Normalize release asset directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ASSET_DIR="dist/release-assets"
+          mkdir -p "$ASSET_DIR"
+
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+
+            if [[ "$name" == "SHA256SUMS.txt" ]]; then
+              continue
+            fi
+
+            if [[ -e "$ASSET_DIR/$name" ]]; then
+              echo "Duplicate release asset filename: $name" >&2
+              echo "First path already copied to: $ASSET_DIR/$name" >&2
+              echo "Duplicate source path: $file" >&2
+              exit 1
+            fi
+
+            cp -v "$file" "$ASSET_DIR/$name"
+          done < <(find dist/incoming -type f -print0)
+
+      - name: Show release assets
+        shell: bash
+        run: find dist/release-assets -maxdepth 1 -type f -print | sort
 
       - name: Generate SHA256 checksums
         shell: bash
         run: |
           set -euo pipefail
-          find dist -maxdepth 5 -type f ! -name 'SHA256SUMS.txt' -print0 \
+
+          cd dist/release-assets
+
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 \
             | sort -z \
-            | xargs -0 sha256sum > dist/SHA256SUMS.txt
-          cat dist/SHA256SUMS.txt
+            | xargs -0 sha256sum > SHA256SUMS.txt
+
+          cat SHA256SUMS.txt
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
-          subject-checksums: dist/SHA256SUMS.txt
+          subject-checksums: dist/release-assets/SHA256SUMS.txt
           create-storage-record: false
 
+      - name: Upload workflow test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          path: dist/release-assets/**
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Create or update release
+        if: ${{ github.event_name == 'push' || inputs.publish == true }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          mapfile -d '' artifacts < <(find dist -maxdepth 5 -type f -print0)
+          ASSET_DIR="dist/release-assets"
+
+          mapfile -d '' artifacts < <(find "$ASSET_DIR" -maxdepth 1 -type f -print0)
 
           if [[ "${#artifacts[@]}" -eq 0 ]]; then
             echo "No release artifacts found" >&2
