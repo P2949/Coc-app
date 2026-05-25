@@ -206,7 +206,13 @@ jobs:
             chmod +x "dist/packager-bin/coc7e_investigator_creator"
           fi
 
-          python - <<'PY'
+          PACKAGER_BINARY_PATH="coc7e_investigator_creator"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            PACKAGER_BINARY_PATH="coc7e_investigator_creator.exe"
+          fi
+
+          PACKAGER_BINARY_PATH="$PACKAGER_BINARY_PATH" python - <<'PY'
+          import os
           from pathlib import Path
 
           src = Path("Packager.toml")
@@ -219,7 +225,7 @@ jobs:
           text = text.replace('binaries-dir = "."', 'binaries-dir = "dist/packager-bin"')
           text = text.replace(
               'path = "target/release/coc7e_investigator_creator"',
-              'path = "coc7e_investigator_creator"',
+              f'path = "{os.environ["PACKAGER_BINARY_PATH"]}"',
           )
 
           dst.write_text(text)

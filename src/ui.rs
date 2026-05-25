@@ -99,12 +99,124 @@ impl CoC7eApp {
             custom_occupation: CustomOccupation::default(),
             allocations: AllocationState::default(),
             backstory: HashMap::new(),
+            import_json_text: String::new(),
+            save_load_message: None,
             occupations,
             startup_validation_errors: Vec::new(),
             last_age_bracket_index: age_index,
             frame_max_reachable_step: 2,
             rng: AppRng::seeded(rng_state),
         }
+    }
+
+    pub(crate) fn save_file(&self) -> InvestigatorSaveFile {
+        let mut occupation_choices: Vec<SavedOccupationChoice> = self
+            .occupation_choices
+            .iter()
+            .map(|(key, value)| SavedOccupationChoice {
+                id: key.id.clone(),
+                index: key.index,
+                value: value.clone(),
+            })
+            .collect();
+        occupation_choices.sort_by(|left, right| {
+            left.id
+                .cmp(&right.id)
+                .then_with(|| left.index.cmp(&right.index))
+        });
+
+        InvestigatorSaveFile {
+            version: INVESTIGATOR_SAVE_VERSION,
+            concept: self.concept.clone(),
+            char_method: self.char_method,
+            chars: self.chars.clone(),
+            char_rolls: self.char_rolls.clone(),
+            luck_state: self.luck_state.clone(),
+            age_deductions: self.age_deductions.clone(),
+            edu_bonus: self.edu_bonus,
+            edu_check_rolls: self.edu_check_rolls.clone(),
+            occupation_id: self.occupation_id.clone(),
+            formula_key: self.formula_key,
+            occupation_choices,
+            custom_occupation: self.custom_occupation.clone(),
+            allocations: self.allocations.clone(),
+            backstory: self.backstory.clone(),
+        }
+    }
+
+    pub(crate) fn export_json_save(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(&self.save_file())
+    }
+
+    pub(crate) fn import_json_save(&mut self, input: &str) -> Result<(), String> {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Err("paste a JSON save before loading".to_owned());
+        }
+
+        let save: InvestigatorSaveFile = serde_json::from_str(trimmed)
+            .map_err(|error| format!("could not parse JSON save: {error}"))?;
+
+        if save.version != INVESTIGATOR_SAVE_VERSION {
+            return Err(format!(
+                "unsupported save version {}; this app supports version {INVESTIGATOR_SAVE_VERSION}",
+                save.version
+            ));
+        }
+
+        self.concept = save.concept;
+        self.concept.age = self.concept.age.clamp(15, 89);
+        self.last_age_bracket_index = get_age_bracket_index(self.concept.age);
+        self.char_method = save.char_method;
+        self.chars = save.chars;
+        self.char_rolls = save.char_rolls;
+        self.luck_state = save.luck_state;
+        self.age_deductions = save.age_deductions;
+        self.edu_bonus = save.edu_bonus.clamp(0, MAX_CREATION_VALUE);
+        self.edu_check_rolls = save.edu_check_rolls;
+        self.occupation_id = if save.occupation_id == CUSTOM_OCCUPATION_ID
+            || self
+                .occupations
+                .iter()
+                .any(|occupation| occupation.name == save.occupation_id)
+        {
+            save.occupation_id
+        } else {
+            String::new()
+        };
+        self.formula_key = save.formula_key;
+        self.occupation_choices = save
+            .occupation_choices
+            .into_iter()
+            .filter_map(|choice| {
+                let value = choice.value.trim().to_owned();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some((ChoiceKey::new(choice.id, choice.index), value))
+                }
+            })
+            .collect();
+        self.custom_occupation = save.custom_occupation;
+        self.allocations = save.allocations;
+        self.backstory = save
+            .backstory
+            .into_iter()
+            .filter_map(|(category, value)| {
+                if value.trim().is_empty() {
+                    None
+                } else {
+                    Some((category, value))
+                }
+            })
+            .collect();
+
+        let bracket = self.age_bracket();
+        self.edu_check_rolls.truncate(bracket.edu_checks);
+        self.luck_state.value = self.luck_state.value.map(|value| value.clamp(1, 99));
+        self.sanitize_state();
+        self.refresh_reachability();
+        Ok(())
     }
 
     pub(crate) fn sync_age_bracket(&mut self) {
@@ -1334,6 +1446,66 @@ impl CoC7eApp {
         ui.add_space(10.0);
     }
 
+    pub(crate) fn save_load_panel(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Save / Load JSON")
+            .default_open(false)
+            .show(ui, |ui| {
+                card(ui, |ui| {
+                    ui.label(
+                        RichText::new(
+                            "Copy a JSON save to preserve editable investigator state, or paste one here to load it back into the creator.",
+                        )
+                        .small()
+                        .color(MUTED),
+                    );
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("Copy JSON save").clicked() {
+                            match self.export_json_save() {
+                                Ok(json) => {
+                                    ui.ctx().copy_text(json);
+                                    self.save_load_message =
+                                        Some("Copied JSON save to clipboard.".to_owned());
+                                }
+                                Err(error) => {
+                                    self.save_load_message =
+                                        Some(format!("Could not build JSON save: {error}"));
+                                }
+                            }
+                        }
+
+                        let load_response = ui.add_enabled(
+                            !self.import_json_text.trim().is_empty(),
+                            egui::Button::new("Load JSON save"),
+                        );
+                        if load_response.clicked() {
+                            let input = self.import_json_text.clone();
+                            match self.import_json_save(&input) {
+                                Ok(()) => {
+                                    self.import_json_text.clear();
+                                    self.save_load_message = Some("Loaded JSON save.".to_owned());
+                                }
+                                Err(error) => {
+                                    self.save_load_message = Some(error);
+                                }
+                            }
+                        } else if self.import_json_text.trim().is_empty() {
+                            load_response.on_hover_text("Paste a JSON save before loading.");
+                        }
+                    });
+                    if let Some(message) = &self.save_load_message {
+                        ui.label(RichText::new(message).small().color(AMBER));
+                    }
+                    ui.add_sized(
+                        [ui.available_width(), 120.0],
+                        egui::TextEdit::multiline(&mut self.import_json_text)
+                            .hint_text("Paste JSON save here, then press Load JSON save"),
+                    );
+                });
+            });
+        ui.add_space(8.0);
+    }
+
     pub(crate) fn navigation(&mut self, ui: &mut egui::Ui) {
         self.refresh_reachability();
         ui.add_space(12.0);
@@ -1408,6 +1580,7 @@ impl eframe::App for CoC7eApp {
                         }
 
                         self.step_bar(ui);
+                        self.save_load_panel(ui);
 
                         match self.step {
                             1 => self.render_concept(ui),

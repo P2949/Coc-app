@@ -609,6 +609,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "rand",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

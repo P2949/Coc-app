@@ -66,6 +66,18 @@ impl CoC7eApp {
         let shortfall = math.occupation_shortfall;
         let credit_out = has_occupation && (credit < credit_min || credit > credit_max);
         let skills_over = skill_rows.iter().any(|row| row.total > MAX_CREATION_VALUE);
+        let age_deduction_label = if self.physical_deduction_is_possible() {
+            format!(
+                "Age deductions {physical_total}/{}",
+                bracket.physical_deduct
+            )
+        } else {
+            format!(
+                "Age deductions {physical_total}/{} impossible; max {}",
+                bracket.physical_deduct,
+                self.max_possible_physical_deduction()
+            )
+        };
         let summary_blockers = self.summary_blockers_for(&math);
         let name = self.concept.name.trim();
         let pronouns = self.concept.pronouns.trim();
@@ -129,10 +141,7 @@ impl CoC7eApp {
                     } else {
                         CheckState::Fail
                     },
-                    format!(
-                        "Age deductions {physical_total}/{}",
-                        bracket.physical_deduct
-                    ),
+                    age_deduction_label,
                 );
                 rule_check(
                     ui,

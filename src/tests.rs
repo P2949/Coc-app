@@ -1767,6 +1767,119 @@ fn occupation_validation_rejects_duplicate_names() {
 }
 
 #[test]
+fn occupation_validation_rejects_names_that_only_differ_by_outer_whitespace() {
+    let occupations = vec![
+        occupation(
+            "Duplicate Occupation",
+            (0, 10),
+            vec![FormulaKey::Edu4],
+            vec![
+                fixed("Accounting"),
+                fixed("Anthropology"),
+                fixed("Appraise"),
+                fixed("Archaeology"),
+                fixed("Art/Craft"),
+                fixed("Charm"),
+                fixed("Climb"),
+                fixed("Disguise"),
+            ],
+        ),
+        occupation(
+            "  Duplicate Occupation  ",
+            (0, 10),
+            vec![FormulaKey::Edu4],
+            vec![
+                fixed("Accounting"),
+                fixed("Anthropology"),
+                fixed("Appraise"),
+                fixed("Archaeology"),
+                fixed("Art/Craft"),
+                fixed("Charm"),
+                fixed("Climb"),
+                fixed("Disguise"),
+            ],
+        ),
+    ];
+
+    let errors = occupation_validation_errors(&occupations);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("duplicate occupation name"))
+    );
+}
+
+#[test]
+fn json_save_round_trips_editable_investigator_state() {
+    let mut app = test_app();
+    app.concept.name = "Ida Know".to_owned();
+    app.concept.pronouns = "she/her".to_owned();
+    app.concept.residence = "Arkham".to_owned();
+    app.concept.birthplace = "Boston".to_owned();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_age(55);
+    app.set_age_deduction(Characteristic::Str, 5);
+    app.set_age_deduction(Characteristic::Con, 5);
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+    app.set_occupation_allocation("First Aid", 20);
+    app.set_personal_allocation("Accounting", 15);
+    app.luck_state.value = Some(55);
+    app.backstory
+        .insert("Traits".to_owned(), "Writes everything down.".to_owned());
+
+    let json = app.export_json_save().expect("save should serialize");
+    assert!(json.contains("Ida Know"));
+    assert!(json.contains("nurse-interpersonal"));
+
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("fresh app should load its own save format");
+
+    assert_eq!(loaded.concept.name, "Ida Know");
+    assert_eq!(loaded.concept.age, 55);
+    assert_eq!(loaded.char_method, CharMethod::QuickArray);
+    assert_eq!(loaded.char_value("EDU"), 80);
+    assert_eq!(loaded.age_deductions.get_char(Characteristic::Str), 5);
+    assert_eq!(loaded.age_deductions.get_char(Characteristic::Con), 5);
+    assert_eq!(loaded.occupation_id, "Nurse");
+    assert_eq!(
+        loaded
+            .occupation_choices
+            .get(&ChoiceKey::new("nurse-interpersonal", 0))
+            .map(String::as_str),
+        Some("Persuade")
+    );
+    assert_eq!(
+        loaded.allocations.occupation_points.get("First Aid"),
+        Some(&20)
+    );
+    assert_eq!(
+        loaded.allocations.personal_points.get("Accounting"),
+        Some(&15)
+    );
+    assert_eq!(loaded.luck_state.value, Some(55));
+    assert_eq!(
+        loaded.backstory.get("Traits").map(String::as_str),
+        Some("Writes everything down.")
+    );
+}
+
+#[test]
 #[should_panic(expected = "duplicate formula")]
 fn occupation_validation_rejects_duplicate_formulas() {
     let occupations = vec![occupation(

@@ -323,10 +323,11 @@ pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<St
     let mut occupation_names = HashSet::new();
 
     for occupation in occupations {
-        if occupation.name.trim().is_empty() {
+        let occupation_name = occupation.name.trim();
+        if occupation_name.is_empty() {
             errors.push("occupation with empty name".to_owned());
         }
-        if !occupation_names.insert(occupation.name.as_str()) {
+        if !occupation_names.insert(occupation_name) {
             errors.push(format!("duplicate occupation name `{}`", occupation.name));
         }
         if occupation.formula_keys.is_empty() {

@@ -1,10 +1,12 @@
 use eframe::egui::Color32;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Index;
 
 pub(crate) const CUSTOM_OCCUPATION_ID: &str = "__custom__";
+pub(crate) const INVESTIGATOR_SAVE_VERSION: u32 = 1;
 pub(crate) const CUSTOM_OCCUPATION_SKILL_COUNT: usize = 8;
 // Optional helper budget, not an official CoC 7e point-buy rule.
 // 460 is the total used by this app's balanced adjustable preset.
@@ -54,7 +56,7 @@ impl AppRng {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub(crate) enum Characteristic {
     Str,
     Con,
@@ -110,7 +112,7 @@ impl Characteristic {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CharacteristicValues {
     pub(crate) values: [i32; Characteristic::COUNT],
 }
@@ -164,7 +166,7 @@ pub(crate) struct CharacteristicDef {
     pub(crate) desc: &'static str,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub(crate) enum DiceKind {
     ThreeD6,
     TwoD6Plus6,
@@ -202,7 +204,7 @@ pub(crate) struct DamageRow {
     pub(crate) build: i32,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub(crate) enum Skill {
     Accounting,
     Anthropology,
@@ -411,7 +413,7 @@ impl Skill {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum SkillBase {
     Fixed(i32),
     HalfDex,
@@ -425,7 +427,7 @@ pub(crate) struct SkillSpec {
     pub(crate) base: SkillBase,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub(crate) enum FormulaKey {
     Edu4,
     Edu2Dex2,
@@ -483,7 +485,7 @@ pub(crate) struct Occupation {
     pub(crate) slots: Vec<Slot>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct DiceResult {
     pub(crate) rolls: Vec<u32>,
     pub(crate) plus_six: bool,
@@ -491,7 +493,7 @@ pub(crate) struct DiceResult {
     pub(crate) kept: Option<bool>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Concept {
     pub(crate) name: String,
     pub(crate) age: i32,
@@ -512,7 +514,7 @@ impl Default for Concept {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CustomOccupation {
     pub(crate) name: String,
     pub(crate) credit_min: i32,
@@ -533,7 +535,7 @@ impl Default for CustomOccupation {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct EduCheckRoll {
     pub(crate) d100: i32,
     pub(crate) improved: bool,
@@ -578,7 +580,7 @@ pub(crate) struct SheetMath {
     pub(crate) credit_rating: i32,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub(crate) enum CharMethod {
     Roll,
     PointBuy,
@@ -605,16 +607,42 @@ impl ChoiceKey {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct LuckState {
     pub(crate) value: Option<i32>,
     pub(crate) rolls: Vec<DiceResult>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct AllocationState {
     pub(crate) occupation_points: HashMap<String, i32>,
     pub(crate) personal_points: HashMap<String, i32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct SavedOccupationChoice {
+    pub(crate) id: String,
+    pub(crate) index: usize,
+    pub(crate) value: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct InvestigatorSaveFile {
+    pub(crate) version: u32,
+    pub(crate) concept: Concept,
+    pub(crate) char_method: CharMethod,
+    pub(crate) chars: CharacteristicValues,
+    pub(crate) char_rolls: HashMap<String, DiceResult>,
+    pub(crate) luck_state: LuckState,
+    pub(crate) age_deductions: CharacteristicValues,
+    pub(crate) edu_bonus: i32,
+    pub(crate) edu_check_rolls: Vec<EduCheckRoll>,
+    pub(crate) occupation_id: String,
+    pub(crate) formula_key: FormulaKey,
+    pub(crate) occupation_choices: Vec<SavedOccupationChoice>,
+    pub(crate) custom_occupation: CustomOccupation,
+    pub(crate) allocations: AllocationState,
+    pub(crate) backstory: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -634,6 +662,8 @@ pub(crate) struct CoC7eApp {
     pub(super) custom_occupation: CustomOccupation,
     pub(super) allocations: AllocationState,
     pub(super) backstory: HashMap<String, String>,
+    pub(super) import_json_text: String,
+    pub(super) save_load_message: Option<String>,
     pub(super) occupations: Vec<Occupation>,
     pub(super) startup_validation_errors: Vec<String>,
     pub(super) last_age_bracket_index: usize,
