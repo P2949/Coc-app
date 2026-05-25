@@ -214,13 +214,36 @@ fn set_age_clamps_and_resets_age_bracket_state() {
 }
 
 #[test]
-fn custom_occupation_credit_setters_clamp_boundary_values() {
+fn custom_occupation_name_setter_preserves_in_progress_text() {
+    let mut app = test_app();
+
+    app.set_custom_occupation_name("Occult ".to_owned());
+
+    assert_eq!(app.custom_occupation.name, "Occult ");
+}
+
+#[test]
+fn selected_custom_occupation_name_is_trimmed_for_display_and_rules() {
     let mut app = test_app();
     app.set_custom_occupation_name("  Occult Tinkerer  ".to_owned());
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+
+    assert_eq!(app.custom_occupation.name, "  Occult Tinkerer  ");
+    assert_eq!(app.selected_occupation_name(), "Occult Tinkerer");
+    assert_eq!(
+        app.selected_occupation()
+            .expect("custom occupation should build")
+            .name,
+        "Occult Tinkerer"
+    );
+}
+
+#[test]
+fn custom_occupation_credit_setters_clamp_boundary_values() {
+    let mut app = test_app();
     app.set_custom_occupation_credit_min(-10);
     app.set_custom_occupation_credit_max(150);
 
-    assert_eq!(app.custom_occupation.name, "Occult Tinkerer");
     assert_eq!(app.custom_occupation.credit_min, 0);
     assert_eq!(app.custom_occupation.credit_max, 99);
 }

@@ -417,7 +417,7 @@ impl CoC7eApp {
     }
 
     pub(crate) fn set_custom_occupation_name(&mut self, next: String) {
-        self.custom_occupation.name = next.trim().to_owned();
+        self.custom_occupation.name = next;
     }
 
     pub(crate) fn set_custom_occupation_credit_min(&mut self, next: i32) {
