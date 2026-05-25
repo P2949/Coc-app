@@ -237,10 +237,12 @@ impl CoC7eApp {
 
             ui.add_space(8.0);
             ui.label(
-                RichText::new("Choose 8 occupation skills")
-                    .small()
-                    .color(MUTED)
-                    .strong(),
+                RichText::new(format!(
+                    "Choose {CUSTOM_OCCUPATION_SKILL_COUNT} occupation skills"
+                ))
+                .small()
+                .color(MUTED)
+                .strong(),
             );
             if self.custom_occupation.credit_min > self.custom_occupation.credit_max {
                 ui.label(RichText::new("Credit min is greater than credit max; the generated range will be normalized until corrected.").small().color(AMBER));

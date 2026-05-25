@@ -5,6 +5,7 @@ use std::fmt;
 use std::ops::Index;
 
 pub(crate) const CUSTOM_OCCUPATION_ID: &str = "__custom__";
+pub(crate) const CUSTOM_OCCUPATION_SKILL_COUNT: usize = 8;
 // Optional helper budget, not an official CoC 7e point-buy rule.
 // 460 is the total used by this app's balanced adjustable preset.
 pub(crate) const POINT_BUY_BUDGET: i32 = 460;
@@ -527,7 +528,7 @@ impl Default for CustomOccupation {
             credit_min: 9,
             credit_max: 60,
             formula_key: FormulaKey::Edu4,
-            skills: vec![String::new(); 8],
+            skills: vec![String::new(); CUSTOM_OCCUPATION_SKILL_COUNT],
         }
     }
 }

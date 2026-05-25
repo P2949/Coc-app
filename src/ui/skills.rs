@@ -1,10 +1,13 @@
 use super::super::data::*;
 use super::super::models::*;
+use super::skill_accepts_personal_points;
 use eframe::egui;
 use egui::RichText;
 
 impl CoC7eApp {
     pub(crate) fn render_skills(&mut self, ui: &mut egui::Ui) {
+        self.prune_personal_allocations();
+
         heading(
             ui,
             "IV. Allocate Skills",
@@ -123,8 +126,7 @@ impl CoC7eApp {
 
                             for row in skill_rows {
                                 let can_occ = allowed_occ.contains(&row.name);
-                                let can_personal =
-                                    row.name != "Credit Rating" && row.name != "Cthulhu Mythos";
+                                let can_personal = skill_accepts_personal_points(&row.name);
                                 let occ_max =
                                     (MAX_CREATION_VALUE - row.base - row.personal_add).max(0);
                                 let personal_max =

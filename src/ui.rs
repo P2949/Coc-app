@@ -42,6 +42,10 @@ fn adjusted_final_characteristic(raw: i32, delta: i32) -> i32 {
     }
 }
 
+fn skill_accepts_personal_points(skill: &str) -> bool {
+    skill != "Credit Rating" && skill != "Cthulhu Mythos"
+}
+
 impl CoC7eApp {
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_dark_theme(&cc.egui_ctx);
@@ -242,10 +246,14 @@ impl CoC7eApp {
             } else {
                 trimmed.to_owned()
             }
-        } else if self.occupation_id.is_empty() {
-            "No occupation".to_owned()
-        } else {
+        } else if self
+            .occupations
+            .iter()
+            .any(|occupation| occupation.name == self.occupation_id)
+        {
             self.occupation_id.clone()
+        } else {
+            "No occupation".to_owned()
         }
     }
 
@@ -256,6 +264,7 @@ impl CoC7eApp {
             self.custom_occupation
                 .skills
                 .iter()
+                .take(CUSTOM_OCCUPATION_SKILL_COUNT)
                 .map(|skill| skill.trim().to_owned())
                 .filter(|skill| {
                     !skill.is_empty() && OCCUPATION_SELECTABLE_SKILLS.contains(&skill.as_str())
@@ -271,7 +280,16 @@ impl CoC7eApp {
     }
 
     pub(crate) fn set_occupation(&mut self, next_id: String) {
-        self.occupation_id = next_id;
+        self.occupation_id = if next_id == CUSTOM_OCCUPATION_ID
+            || self
+                .occupations
+                .iter()
+                .any(|occupation| occupation.name == next_id)
+        {
+            next_id
+        } else {
+            String::new()
+        };
         self.formula_key = if self.occupation_id == CUSTOM_OCCUPATION_ID {
             self.custom_occupation.formula_key
         } else {
@@ -308,17 +326,23 @@ impl CoC7eApp {
         unique_strings(resolved)
     }
 
+    pub(crate) fn occupation_skill_set_for(
+        &self,
+        occupation: Option<&Occupation>,
+    ) -> HashSet<String> {
+        occupation.map_or_else(HashSet::new, |occupation| {
+            let mut set: HashSet<String> = self
+                .resolved_occupation_skills_for(occupation)
+                .into_iter()
+                .collect();
+            set.insert("Credit Rating".to_owned());
+            set
+        })
+    }
+
     pub(crate) fn occupation_skill_set(&self) -> HashSet<String> {
-        self.selected_occupation()
-            .as_ref()
-            .map_or_else(HashSet::new, |occupation| {
-                let mut set: HashSet<String> = self
-                    .resolved_occupation_skills_for(occupation)
-                    .into_iter()
-                    .collect();
-                set.insert("Credit Rating".to_owned());
-                set
-            })
+        let selected_occupation = self.selected_occupation();
+        self.occupation_skill_set_for(selected_occupation.as_ref())
     }
 
     pub(crate) fn unresolved_choice_count_for(&self, occupation: &Occupation) -> usize {
@@ -356,7 +380,7 @@ impl CoC7eApp {
         // A custom occupation's built Occupation only contains filled unique skills,
         // but the creator still requires all eight custom skill slots to be filled.
         if self.occupation_id == CUSTOM_OCCUPATION_ID {
-            self.custom_occupation.skills.len()
+            CUSTOM_OCCUPATION_SKILL_COUNT
         } else {
             self.occupation_slot_count_for(occupation)
         }
@@ -377,11 +401,15 @@ impl CoC7eApp {
                     .occupation_points
                     .get(skill.name)
                     .unwrap_or(&0);
-                let personal_add = *self
-                    .allocations
-                    .personal_points
-                    .get(skill.name)
-                    .unwrap_or(&0);
+                let personal_add = if skill_accepts_personal_points(skill.name) {
+                    *self
+                        .allocations
+                        .personal_points
+                        .get(skill.name)
+                        .unwrap_or(&0)
+                } else {
+                    0
+                };
                 SkillRow {
                     name: skill.name.to_owned(),
                     base,
@@ -423,17 +451,7 @@ impl CoC7eApp {
         let occupation_shortfall = selected_occupation.as_ref().map_or(0, |occupation| {
             self.unique_occupation_shortfall_for(occupation)
         });
-        let occupation_skill_set =
-            selected_occupation
-                .as_ref()
-                .map_or_else(HashSet::new, |occupation| {
-                    let mut set: HashSet<String> = self
-                        .resolved_occupation_skills_for(occupation)
-                        .into_iter()
-                        .collect();
-                    set.insert("Credit Rating".to_owned());
-                    set
-                });
+        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
         let occupation_budget = self.occupation_budget_for(&final_chars);
         let personal_budget = self.personal_budget_for(&final_chars);
         let credit_rating = self.credit_rating_for(&final_chars);
@@ -506,7 +524,12 @@ impl CoC7eApp {
     }
 
     pub(crate) fn used_personal_points(&self) -> i32 {
-        self.allocations.personal_points.values().sum()
+        self.allocations
+            .personal_points
+            .iter()
+            .filter(|(skill, _)| skill_accepts_personal_points(skill.as_str()))
+            .map(|(_, value)| *value)
+            .sum()
     }
 
     #[cfg(test)]
@@ -644,6 +667,12 @@ impl CoC7eApp {
         self.allocations
             .occupation_points
             .retain(|skill, value| allowed.contains(skill) && *value > 0);
+    }
+
+    pub(crate) fn prune_personal_allocations(&mut self) {
+        self.allocations
+            .personal_points
+            .retain(|skill, value| skill_accepts_personal_points(skill.as_str()) && *value > 0);
     }
 
     pub(crate) fn apply_quick_skill_package(&mut self) {

@@ -392,6 +392,80 @@ fn prune_occupation_allocations_removes_credit_rating_without_occupation() {
 }
 
 #[test]
+fn prune_personal_allocations_removes_credit_rating_and_mythos() {
+    let mut app = test_app();
+    app.allocations
+        .personal_points
+        .insert("Credit Rating".to_owned(), 10);
+    app.allocations
+        .personal_points
+        .insert("Cthulhu Mythos".to_owned(), 10);
+    app.allocations
+        .personal_points
+        .insert("Library Use".to_owned(), 10);
+
+    app.prune_personal_allocations();
+
+    assert!(
+        !app.allocations
+            .personal_points
+            .contains_key("Credit Rating")
+    );
+    assert!(
+        !app.allocations
+            .personal_points
+            .contains_key("Cthulhu Mythos")
+    );
+    assert_eq!(
+        app.allocations.personal_points.get("Library Use"),
+        Some(&10)
+    );
+}
+
+#[test]
+fn personal_allocation_math_ignores_reserved_skills_before_pruning() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.allocations
+        .personal_points
+        .insert("Credit Rating".to_owned(), 10);
+    app.allocations
+        .personal_points
+        .insert("Cthulhu Mythos".to_owned(), 10);
+    app.allocations
+        .personal_points
+        .insert("Library Use".to_owned(), 10);
+
+    let math = app.sheet_math();
+    let credit_rating = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Credit Rating")
+        .expect("Credit Rating row should exist");
+    let mythos = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Cthulhu Mythos")
+        .expect("Cthulhu Mythos row should exist");
+
+    assert_eq!(app.used_personal_points(), 10);
+    assert_eq!(credit_rating.personal_add, 0);
+    assert_eq!(mythos.personal_add, 0);
+}
+
+#[test]
 fn max_reachable_step_does_not_jump_to_skills_without_characteristics() {
     let mut app = test_app();
     app.set_occupation("Soldier".to_owned());
@@ -484,6 +558,22 @@ fn custom_occupation_requires_all_eight_unique_skills() {
 }
 
 #[test]
+fn unknown_occupation_id_is_not_displayed_as_selected_occupation() {
+    let mut app = test_app();
+
+    app.set_occupation("Bogus Occupation".to_owned());
+
+    assert!(app.occupation_id.is_empty());
+    assert!(app.selected_occupation().is_none());
+    assert_eq!(app.selected_occupation_name(), "No occupation");
+
+    app.occupation_id = "Bogus Occupation".to_owned();
+
+    assert!(app.selected_occupation().is_none());
+    assert_eq!(app.selected_occupation_name(), "No occupation");
+}
+
+#[test]
 fn quick_skill_package_sets_credit_rating_to_occupation_minimum() {
     let mut app = test_app();
     app.apply_characteristic_preset(
@@ -567,6 +657,74 @@ fn custom_occupation_discards_unknown_and_reserved_skills() {
     );
     assert_eq!(app.unique_occupation_shortfall_for(&occupation), 3);
     assert_eq!(app.max_reachable_step(), 4);
+}
+
+#[test]
+fn custom_occupation_required_skill_count_does_not_follow_vector_length() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.custom_occupation.skills = vec!["Library Use".to_owned()];
+
+    let occupation = app
+        .selected_occupation()
+        .expect("custom occupation should exist");
+
+    assert_eq!(
+        app.required_occupation_skill_count_for(&occupation),
+        CUSTOM_OCCUPATION_SKILL_COUNT
+    );
+    assert_eq!(app.unique_occupation_shortfall_for(&occupation), 7);
+
+    app.custom_occupation.skills = vec![
+        "Library Use".to_owned(),
+        "Spot Hidden".to_owned(),
+        "Listen".to_owned(),
+        "Stealth".to_owned(),
+        "Persuade".to_owned(),
+        "Charm".to_owned(),
+        "Fast Talk".to_owned(),
+        "Intimidate".to_owned(),
+        "Law".to_owned(),
+    ];
+    let occupation = app
+        .selected_occupation()
+        .expect("custom occupation should exist");
+
+    assert_eq!(
+        app.required_occupation_skill_count_for(&occupation),
+        CUSTOM_OCCUPATION_SKILL_COUNT
+    );
+    assert_eq!(app.unique_occupation_shortfall_for(&occupation), 0);
+    assert_eq!(app.resolved_occupation_skills_for(&occupation).len(), 8);
+    assert!(
+        !app.resolved_occupation_skills_for(&occupation)
+            .contains(&"Law".to_owned())
+    );
+}
+
+#[test]
+fn sheet_math_uses_shared_occupation_skill_set() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+
+    assert_eq!(
+        app.sheet_math().occupation_skill_set,
+        app.occupation_skill_set()
+    );
 }
 
 #[test]
