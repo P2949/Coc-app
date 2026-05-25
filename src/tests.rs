@@ -552,6 +552,109 @@ fn occupation_budget_uses_selected_occupation_formula_when_state_drifts() {
 }
 
 #[test]
+fn allocation_math_sanitizes_stale_allowed_values() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+    app.allocations
+        .occupation_points
+        .insert("First Aid".to_owned(), 500);
+    app.allocations
+        .personal_points
+        .insert("Library Use".to_owned(), 500);
+    app.allocations
+        .personal_points
+        .insert("Spot Hidden".to_owned(), -20);
+
+    let math = app.sheet_math();
+    let first_aid = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "First Aid")
+        .expect("First Aid row should exist");
+    let library_use = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Library Use")
+        .expect("Library Use row should exist");
+    let spot_hidden = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Spot Hidden")
+        .expect("Spot Hidden row should exist");
+
+    assert_eq!(first_aid.total, MAX_CREATION_VALUE);
+    assert_eq!(first_aid.occ_add, MAX_CREATION_VALUE - first_aid.base);
+    assert_eq!(library_use.total, MAX_CREATION_VALUE);
+    assert_eq!(
+        library_use.personal_add,
+        MAX_CREATION_VALUE - library_use.base
+    );
+    assert_eq!(spot_hidden.personal_add, 0);
+    assert_eq!(app.used_occupation_points(), first_aid.occ_add);
+    assert_eq!(app.used_personal_points(), library_use.personal_add);
+}
+
+#[test]
+fn normalize_formula_key_replaces_stale_formula_for_selected_occupation() {
+    let mut app = test_app();
+    app.set_occupation("Soldier".to_owned());
+    app.formula_key = FormulaKey::Edu4;
+
+    let selected = app.selected_occupation();
+    app.normalize_formula_key_for(selected.as_ref());
+
+    assert_eq!(app.formula_key, FormulaKey::Edu2Dex2);
+}
+
+#[test]
+fn prune_occupation_choices_removes_stale_and_invalid_choice_state() {
+    let mut app = test_app();
+    app.set_occupation("Nurse".to_owned());
+    app.occupation_choices.insert(
+        ChoiceKey::new("nurse-interpersonal", 0),
+        "Persuade".to_owned(),
+    );
+    app.occupation_choices.insert(
+        ChoiceKey::new("soldier-firearms", 0),
+        "Firearms (Handgun)".to_owned(),
+    );
+
+    let occupation = app
+        .selected_occupation()
+        .expect("Nurse occupation should exist");
+    app.prune_occupation_choices_for(&occupation);
+
+    assert_eq!(app.occupation_choices.len(), 1);
+    assert_eq!(
+        app.occupation_choices
+            .get(&ChoiceKey::new("nurse-interpersonal", 0)),
+        Some(&"Persuade".to_owned())
+    );
+
+    app.occupation_choices.insert(
+        ChoiceKey::new("nurse-interpersonal", 0),
+        "Bogus Skill".to_owned(),
+    );
+    app.prune_occupation_choices_for(&occupation);
+
+    assert!(app.occupation_choices.is_empty());
+}
+
+#[test]
 fn max_reachable_step_does_not_jump_to_skills_without_characteristics() {
     let mut app = test_app();
     app.set_occupation("Soldier".to_owned());

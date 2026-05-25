@@ -50,6 +50,18 @@ fn skill_accepts_occupation_points(skill: &str, allowed: &HashSet<String>) -> bo
     allowed.contains(skill)
 }
 
+fn sanitized_allocation_value(
+    allocations: &HashMap<String, i32>,
+    skill: &str,
+    max_value: i32,
+) -> i32 {
+    allocations
+        .get(skill)
+        .copied()
+        .unwrap_or(0)
+        .clamp(0, max_value.clamp(0, MAX_CREATION_VALUE))
+}
+
 impl CoC7eApp {
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_dark_theme(&cc.egui_ctx);
@@ -270,6 +282,29 @@ impl CoC7eApp {
             .truncate(CUSTOM_OCCUPATION_SKILL_COUNT);
     }
 
+    pub(crate) fn prune_occupation_choices_for(&mut self, occupation: &Occupation) {
+        let mut valid_choices: HashMap<ChoiceKey, &[String]> = HashMap::new();
+
+        for slot in &occupation.slots {
+            if let Slot::Choice {
+                id, options, count, ..
+            } = slot
+            {
+                for index in 0..*count {
+                    valid_choices.insert(ChoiceKey::new(id.clone(), index), options.as_slice());
+                }
+            }
+        }
+
+        self.occupation_choices.retain(|key, value| {
+            let value = value.trim();
+            !value.is_empty()
+                && valid_choices
+                    .get(key)
+                    .is_some_and(|options| choice_value_is_valid(options, value))
+        });
+    }
+
     pub(crate) fn build_custom_occupation(&self) -> Occupation {
         let min = self.custom_occupation.credit_min.clamp(0, 99);
         let max = self.custom_occupation.credit_max.clamp(0, 99);
@@ -414,20 +449,20 @@ impl CoC7eApp {
             .map(|skill| {
                 let base = get_base_skill(skill.name, final_chars);
                 let occ_add = if skill_accepts_occupation_points(skill.name, occupation_skill_set) {
-                    *self
-                        .allocations
-                        .occupation_points
-                        .get(skill.name)
-                        .unwrap_or(&0)
+                    sanitized_allocation_value(
+                        &self.allocations.occupation_points,
+                        skill.name,
+                        MAX_CREATION_VALUE - base,
+                    )
                 } else {
                     0
                 };
                 let personal_add = if skill_accepts_personal_points(skill.name) {
-                    *self
-                        .allocations
-                        .personal_points
-                        .get(skill.name)
-                        .unwrap_or(&0)
+                    sanitized_allocation_value(
+                        &self.allocations.personal_points,
+                        skill.name,
+                        MAX_CREATION_VALUE - base - occ_add,
+                    )
                 } else {
                     0
                 };
@@ -548,26 +583,27 @@ impl CoC7eApp {
         }
     }
 
+    pub(crate) fn normalize_formula_key_for(&mut self, occupation: Option<&Occupation>) {
+        self.formula_key = self.active_formula_key_for(occupation);
+    }
+
     pub(crate) fn personal_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
         final_chars.get_char(Characteristic::Int) * 2
     }
 
     pub(crate) fn used_occupation_points(&self) -> i32 {
-        let allowed = self.occupation_skill_set();
-        self.allocations
-            .occupation_points
+        self.sheet_math()
+            .skill_rows
             .iter()
-            .filter(|(skill, _)| skill_accepts_occupation_points(skill.as_str(), &allowed))
-            .map(|(_, value)| *value)
+            .map(|row| row.occ_add)
             .sum()
     }
 
     pub(crate) fn used_personal_points(&self) -> i32 {
-        self.allocations
-            .personal_points
+        self.sheet_math()
+            .skill_rows
             .iter()
-            .filter(|(skill, _)| skill_accepts_personal_points(skill.as_str()))
-            .map(|(_, value)| *value)
+            .map(|row| row.personal_add)
             .sum()
     }
 
@@ -585,11 +621,11 @@ impl CoC7eApp {
     ) -> i32 {
         let occupation_add =
             if skill_accepts_occupation_points("Credit Rating", occupation_skill_set) {
-                *self
-                    .allocations
-                    .occupation_points
-                    .get("Credit Rating")
-                    .unwrap_or(&0)
+                sanitized_allocation_value(
+                    &self.allocations.occupation_points,
+                    "Credit Rating",
+                    MAX_CREATION_VALUE - get_base_skill("Credit Rating", final_chars),
+                )
             } else {
                 0
             };

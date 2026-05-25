@@ -56,6 +56,7 @@ impl CoC7eApp {
                 if self.occupation_id != CUSTOM_OCCUPATION_ID
                     && let Some(occupation) = self.selected_occupation()
                 {
+                    self.normalize_formula_key_for(Some(&occupation));
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new("Occupation skill point formula")
@@ -85,6 +86,10 @@ impl CoC7eApp {
 
         if self.occupation_id == CUSTOM_OCCUPATION_ID {
             self.render_custom_occupation(ui);
+        }
+
+        if let Some(occupation) = self.selected_occupation() {
+            self.prune_occupation_choices_for(&occupation);
         }
 
         let math = self.sheet_math();
