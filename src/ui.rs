@@ -1154,23 +1154,45 @@ impl CoC7eApp {
             }
         }
 
-        for (skill, target) in skill_order.into_iter().zip(package_values) {
+        for (skill, target) in skill_order.iter().zip(package_values) {
             if remaining_budget <= 0 {
                 break;
             }
 
-            let base = get_base_skill(&skill, &final_chars);
+            let base = get_base_skill(skill, &final_chars);
             let personal_add = sanitized_allocation_value(
                 &self.allocations.personal_points,
-                &skill,
+                skill,
                 MAX_CREATION_VALUE - base,
             );
-            let skill_cap = (MAX_CREATION_VALUE - base - personal_add).max(0);
-            let target_add = (target - base).max(0);
+            let current_add = next.get(skill).copied().unwrap_or(0);
+            let skill_cap = (MAX_CREATION_VALUE - base - personal_add - current_add).max(0);
+            let target_add = (target - base - current_add).max(0);
             let add = target_add.min(skill_cap).min(remaining_budget);
 
             if add > 0 {
-                next.insert(skill, add);
+                *next.entry(skill.clone()).or_insert(0) += add;
+                remaining_budget -= add;
+            }
+        }
+
+        for skill in &skill_order {
+            if remaining_budget <= 0 {
+                break;
+            }
+
+            let base = get_base_skill(skill, &final_chars);
+            let personal_add = sanitized_allocation_value(
+                &self.allocations.personal_points,
+                skill,
+                MAX_CREATION_VALUE - base,
+            );
+            let current_add = next.get(skill).copied().unwrap_or(0);
+            let skill_cap = (MAX_CREATION_VALUE - base - personal_add - current_add).max(0);
+            let add = skill_cap.min(remaining_budget);
+
+            if add > 0 {
+                *next.entry(skill.clone()).or_insert(0) += add;
                 remaining_budget -= add;
             }
         }

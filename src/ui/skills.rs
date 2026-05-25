@@ -29,7 +29,7 @@ impl CoC7eApp {
                     self.apply_quick_skill_package();
                     math = self.sheet_math();
                 }
-                quick_response.on_hover_text("Replaces current occupation allocations. Sets Credit Rating to the occupation minimum (skipped if the minimum is 0), then applies a starter target spread to eligible skills sorted by current base value, lowest first. This is intentionally not guaranteed to spend every occupation point.");
+                quick_response.on_hover_text("Replaces current occupation allocations. Sets Credit Rating to the occupation minimum (skipped if the minimum is 0), applies a starter target spread to eligible skills sorted by current base value, then fills remaining occupation points while skill caps allow.");
                 if ui.button("Clear occupation points").clicked() {
                     self.clear_occupation_allocations();
                     math = self.sheet_math();
