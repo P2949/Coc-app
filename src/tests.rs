@@ -1152,6 +1152,42 @@ fn quick_skill_package_sets_credit_rating_to_occupation_minimum() {
 }
 
 #[test]
+fn quick_skill_package_never_overspends_occupation_budget() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 15),
+            ("CON", 15),
+            ("SIZ", 15),
+            ("DEX", 15),
+            ("APP", 15),
+            ("INT", 15),
+            ("POW", 15),
+            ("EDU", 15),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+
+    app.apply_quick_skill_package();
+
+    let math = app.sheet_math();
+    let used_occ = CoC7eApp::used_occupation_points_from(&math.skill_rows);
+    assert!(
+        used_occ <= math.occupation_budget,
+        "quick package used {used_occ} occupation points but only {} are available",
+        math.occupation_budget
+    );
+    assert!(
+        math.skill_rows
+            .iter()
+            .all(|row| row.total <= MAX_CREATION_VALUE),
+        "quick package should not push any skill over the creation cap"
+    );
+}
+
+#[test]
 fn custom_occupation_discards_unknown_and_reserved_skills() {
     let mut app = test_app();
     app.apply_characteristic_preset(

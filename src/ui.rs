@@ -1131,6 +1131,10 @@ impl CoC7eApp {
 
         let package_values = [70, 60, 60, 50, 50, 50, 40, 40];
         let final_chars = self.final_chars();
+        let occupation_budget = self
+            .active_formula_key_for(Some(&occupation))
+            .calculate(&final_chars);
+        let mut remaining_budget = occupation_budget.max(0);
         let mut skill_order = self.resolved_occupation_skills_for(&occupation);
         skill_order.sort_by(|left, right| {
             get_base_skill(left, &final_chars)
@@ -1139,19 +1143,40 @@ impl CoC7eApp {
         });
 
         let mut next = HashMap::new();
-        if occupation.credit.0 > 0 {
-            next.insert("Credit Rating".to_owned(), occupation.credit.0);
+        if occupation.credit.0 > 0 && remaining_budget > 0 {
+            let credit_base = get_base_skill("Credit Rating", &final_chars);
+            let credit_cap = (MAX_CREATION_VALUE - credit_base).max(0);
+            let credit_add = occupation.credit.0.min(remaining_budget).min(credit_cap);
+
+            if credit_add > 0 {
+                next.insert("Credit Rating".to_owned(), credit_add);
+                remaining_budget -= credit_add;
+            }
         }
 
         for (skill, target) in skill_order.into_iter().zip(package_values) {
+            if remaining_budget <= 0 {
+                break;
+            }
+
             let base = get_base_skill(&skill, &final_chars);
-            let add = (target - base).max(0);
+            let personal_add = sanitized_allocation_value(
+                &self.allocations.personal_points,
+                &skill,
+                MAX_CREATION_VALUE - base,
+            );
+            let skill_cap = (MAX_CREATION_VALUE - base - personal_add).max(0);
+            let target_add = (target - base).max(0);
+            let add = target_add.min(skill_cap).min(remaining_budget);
+
             if add > 0 {
                 next.insert(skill, add);
+                remaining_budget -= add;
             }
         }
 
         self.allocations.occupation_points = next;
+        self.sanitize_allocations();
     }
 
     pub(crate) fn reset_investigator(&mut self) {
