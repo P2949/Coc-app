@@ -635,6 +635,7 @@ pub(crate) struct CoC7eApp {
     pub(super) allocations: AllocationState,
     pub(super) backstory: HashMap<String, String>,
     pub(super) occupations: Vec<Occupation>,
+    pub(super) startup_validation_errors: Vec<String>,
     pub(super) last_age_bracket_index: usize,
     pub(super) frame_max_reachable_step: usize,
     pub(super) rng: AppRng,

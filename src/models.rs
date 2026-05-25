@@ -378,46 +378,43 @@ pub(crate) fn push_blank_line(out: &mut String) {
     out.push_str(LINE_SEP);
 }
 
-pub(crate) fn validate_skill_constants() {
+pub(crate) fn skill_constant_validation_errors() -> Vec<String> {
+    let mut errors = Vec::new();
     let spec_names: HashSet<&str> = SKILL_SPECS.iter().map(|skill| skill.name).collect();
     let all_names: HashSet<&str> = ALL_SKILL_NAMES.iter().copied().collect();
 
-    assert_eq!(
-        ALL_SKILL_NAMES.len(),
-        all_names.len(),
-        "ALL_SKILL_NAMES contains duplicate entries"
-    );
+    if ALL_SKILL_NAMES.len() != all_names.len() {
+        errors.push("ALL_SKILL_NAMES contains duplicate entries".to_owned());
+    }
 
-    assert_eq!(
-        SKILL_SPECS.len(),
-        spec_names.len(),
-        "SKILL_SPECS contains duplicate skill names"
-    );
+    if SKILL_SPECS.len() != spec_names.len() {
+        errors.push("SKILL_SPECS contains duplicate skill names".to_owned());
+    }
 
     let spec_ids: HashSet<Skill> = SKILL_SPECS.iter().map(|skill| skill.id).collect();
-    assert_eq!(
-        SKILL_SPECS.len(),
-        spec_ids.len(),
-        "SKILL_SPECS contains duplicate skill ids"
-    );
+    if SKILL_SPECS.len() != spec_ids.len() {
+        errors.push("SKILL_SPECS contains duplicate skill ids".to_owned());
+    }
 
-    assert_eq!(
-        all_names, spec_names,
-        "ALL_SKILL_NAMES must match SKILL_SPECS exactly"
-    );
+    if all_names != spec_names {
+        errors.push("ALL_SKILL_NAMES must match SKILL_SPECS exactly".to_owned());
+    }
 
     for spec in SKILL_SPECS {
-        assert_eq!(
-            spec.id.name(),
-            spec.name,
-            "Skill enum variant does not match SKILL_SPECS entry"
-        );
+        if spec.id.name() != spec.name {
+            errors.push(format!(
+                "Skill enum variant `{}` does not match SKILL_SPECS entry `{}`",
+                spec.id.name(),
+                spec.name
+            ));
+        }
 
-        assert_eq!(
-            Skill::from_name(spec.name),
-            Some(spec.id),
-            "Skill::from_name does not resolve SKILL_SPECS entry"
-        );
+        if Skill::from_name(spec.name) != Some(spec.id) {
+            errors.push(format!(
+                "Skill::from_name does not resolve SKILL_SPECS entry `{}`",
+                spec.name
+            ));
+        }
     }
 
     let selectable_expected: HashSet<&str> = spec_names
@@ -428,50 +425,61 @@ pub(crate) fn validate_skill_constants() {
 
     let selectable_actual: HashSet<&str> = OCCUPATION_SELECTABLE_SKILLS.iter().copied().collect();
 
-    assert_eq!(
-        OCCUPATION_SELECTABLE_SKILLS.len(),
-        selectable_actual.len(),
-        "OCCUPATION_SELECTABLE_SKILLS contains duplicates"
-    );
+    if OCCUPATION_SELECTABLE_SKILLS.len() != selectable_actual.len() {
+        errors.push("OCCUPATION_SELECTABLE_SKILLS contains duplicates".to_owned());
+    }
 
-    assert_eq!(
-        selectable_actual, selectable_expected,
-        "OCCUPATION_SELECTABLE_SKILLS must contain every non-Mythos, non-Credit skill"
-    );
+    if selectable_actual != selectable_expected {
+        errors.push(
+            "OCCUPATION_SELECTABLE_SKILLS must contain every non-Mythos, non-Credit skill"
+                .to_owned(),
+        );
+    }
 
     for skill in ART_SKILLS {
-        assert!(spec_names.contains(skill), "unknown art skill: {skill}");
-        assert!(
-            skill.starts_with("Art/Craft"),
-            "non-art skill in ART_SKILLS: {skill}"
-        );
+        if !spec_names.contains(skill) {
+            errors.push(format!("unknown art skill: {skill}"));
+        }
+        if !skill.starts_with("Art/Craft") {
+            errors.push(format!("non-art skill in ART_SKILLS: {skill}"));
+        }
     }
 
     for skill in SCIENCE_SKILLS {
-        assert!(spec_names.contains(skill), "unknown science skill: {skill}");
-        assert!(
-            skill.starts_with("Science"),
-            "non-science skill in SCIENCE_SKILLS: {skill}"
-        );
+        if !spec_names.contains(skill) {
+            errors.push(format!("unknown science skill: {skill}"));
+        }
+        if !skill.starts_with("Science") {
+            errors.push(format!("non-science skill in SCIENCE_SKILLS: {skill}"));
+        }
     }
 
     for skill in INTERPERSONAL_SKILLS {
-        assert!(
-            spec_names.contains(skill),
-            "unknown interpersonal skill: {skill}"
-        );
+        if !spec_names.contains(skill) {
+            errors.push(format!("unknown interpersonal skill: {skill}"));
+        }
     }
 
     for skill in FIREARMS_SKILLS {
-        assert!(
-            spec_names.contains(skill),
-            "unknown firearms skill: {skill}"
-        );
-        assert!(
-            skill.starts_with("Firearms"),
-            "non-firearms skill in FIREARMS_SKILLS: {skill}"
-        );
+        if !spec_names.contains(skill) {
+            errors.push(format!("unknown firearms skill: {skill}"));
+        }
+        if !skill.starts_with("Firearms") {
+            errors.push(format!("non-firearms skill in FIREARMS_SKILLS: {skill}"));
+        }
     }
+
+    errors
+}
+
+#[cfg(test)]
+pub(crate) fn validate_skill_constants() {
+    let errors = skill_constant_validation_errors();
+    assert!(
+        errors.is_empty(),
+        "skill constant validation failed:\n{}",
+        errors.join("\n")
+    );
 }
 
 pub(crate) fn unique_strings<I>(values: I) -> Vec<String>

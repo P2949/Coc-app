@@ -50,6 +50,7 @@ impl CoC7eApp {
             let (credit_min, credit_max) = math.credit_range;
             let no_occupation = math.selected_occupation.is_none();
             let unresolved = math.unresolved_choices;
+            let shortfall = math.occupation_shortfall;
             let skill_rows = &math.skill_rows;
             let skills_over_99 = skill_rows.iter().any(|row| row.total > MAX_CREATION_VALUE);
 
@@ -100,6 +101,13 @@ impl CoC7eApp {
                 }
                 if unresolved > 0 {
                     pill(ui, "Resolve occupation choices", RED);
+                }
+                if shortfall > 0 {
+                    pill(
+                        ui,
+                        format!("Choose {shortfall} more occupation skill(s)"),
+                        RED,
+                    );
                 }
             });
         });

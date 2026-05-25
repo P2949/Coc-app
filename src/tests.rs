@@ -5,6 +5,7 @@ use super::ruleset::*;
 use std::collections::HashSet;
 
 fn test_app() -> CoC7eApp {
+    validate_skill_constants();
     let occupations = build_occupations();
     validate_occupations(&occupations);
     CoC7eApp::fresh(occupations, 0xC0C7_E7E5_0000_0001)
@@ -163,6 +164,38 @@ fn physical_deduction_overassignment_past_minimum_is_not_effective() {
         app.physical_deduction_total(),
         app.age_bracket().physical_deduct
     );
+}
+
+#[test]
+fn impossible_physical_deduction_reports_capacity_and_unlocks_summary_explanation() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 15),
+            ("CON", 15),
+            ("SIZ", 60),
+            ("DEX", 15),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_age(70);
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+    app.apply_edu_age_check_rolls(&[(100, 1), (100, 1), (100, 1), (100, 1)]);
+
+    assert_eq!(app.age_bracket().physical_deduct, 40);
+    assert_eq!(app.max_possible_physical_deduction(), 30);
+    assert!(!app.physical_deduction_is_possible());
+    assert_eq!(app.max_reachable_step(), 6);
+
+    let blockers = app.summary_blockers_for(&app.sheet_math());
+    assert!(blockers.iter().any(|blocker| {
+        blocker == "age deductions impossible: requires 40, current STR/CON/DEX can absorb only 30"
+    }));
 }
 
 #[test]
@@ -1623,6 +1656,74 @@ fn summary_blockers_prevent_copying_incomplete_sheet() {
         blockers
             .iter()
             .any(|blocker| blocker.starts_with("occupation points "))
+    );
+}
+
+#[test]
+fn plaintext_summary_trims_concept_and_backstory_output() {
+    let mut app = test_app();
+    app.concept.name = "  Ida Know  ".to_owned();
+    app.concept.pronouns = "  she/her  ".to_owned();
+    app.concept.residence = "  Arkham  ".to_owned();
+    app.concept.birthplace = "  Boston  ".to_owned();
+    app.backstory.insert(
+        "Traits".to_owned(),
+        "  Writes everything down before speaking.  ".to_owned(),
+    );
+
+    let summary = app.plaintext_summary();
+
+    assert!(summary.contains("Ida Know"));
+    assert!(summary.contains("Pronouns/Gender: she/her"));
+    assert!(summary.contains("Residence: Arkham"));
+    assert!(summary.contains("Birthplace: Boston"));
+    assert!(summary.contains("Traits: Writes everything down before speaking."));
+    assert!(!summary.contains("  Ida Know  "));
+    assert!(!summary.contains("Pronouns/Gender:   she/her  "));
+    assert!(!summary.contains("Traits:   Writes everything down before speaking.  "));
+}
+
+#[test]
+fn occupation_validation_errors_are_collectible_without_startup_panic() {
+    let occupations = vec![
+        occupation(
+            "Duplicate Occupation",
+            (0, 10),
+            vec![FormulaKey::Edu4],
+            vec![
+                fixed("Accounting"),
+                fixed("Anthropology"),
+                fixed("Appraise"),
+                fixed("Archaeology"),
+                fixed("Art/Craft"),
+                fixed("Charm"),
+                fixed("Climb"),
+                fixed("Disguise"),
+            ],
+        ),
+        occupation(
+            "Duplicate Occupation",
+            (0, 10),
+            vec![FormulaKey::Edu4],
+            vec![
+                fixed("Accounting"),
+                fixed("Anthropology"),
+                fixed("Appraise"),
+                fixed("Archaeology"),
+                fixed("Art/Craft"),
+                fixed("Charm"),
+                fixed("Climb"),
+                fixed("Disguise"),
+            ],
+        ),
+    ];
+
+    let errors = occupation_validation_errors(&occupations);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("duplicate occupation name"))
     );
 }
 

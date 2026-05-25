@@ -232,28 +232,41 @@ impl CoC7eApp {
                 });
                 let total = self.physical_deduction_total();
                 let assigned_total = self.assigned_physical_deduction_total();
+                let max_possible = self.max_possible_physical_deduction();
+                let possible = self.physical_deduction_is_possible();
                 ui.label(
                     RichText::new(format!(
-                        "Effective physical deduction: {total} / {}",
-                        bracket.physical_deduct
+                        "Effective physical deduction: {total} / {} (max possible {max_possible})",
+                        bracket.physical_deduct,
                     ))
                     .small()
-                    .color(MUTED)
+                    .color(if possible { MUTED } else { RED })
                     .strong(),
                 );
                 if assigned_total != total {
                     ui.label(RichText::new(format!("Assigned {assigned_total}, but only {total} is effective because age deductions are capped to the nearest valid 5-point floor.")).small().color(AMBER));
                 }
-                let ok = total == bracket.physical_deduct;
-                ui.label(
-                    RichText::new(if ok {
-                        "Physical age deductions are fully assigned."
-                    } else {
-                        "Assign the exact total deduction before finalizing the sheet."
-                    })
-                    .small()
-                    .color(if ok { GREEN } else { AMBER }),
-                );
+                let ok = self.physical_deduction_is_complete();
+                if !possible {
+                    ui.label(
+                        RichText::new(format!(
+                            "This age bracket requires {} physical deduction points, but current STR/CON/DEX can absorb only {max_possible}. Increase STR/CON/DEX or choose a lower age.",
+                            bracket.physical_deduct,
+                        ))
+                        .small()
+                        .color(RED),
+                    );
+                } else {
+                    ui.label(
+                        RichText::new(if ok {
+                            "Physical age deductions are fully assigned."
+                        } else {
+                            "Assign the exact total deduction before finalizing the sheet."
+                        })
+                        .small()
+                        .color(if ok { GREEN } else { AMBER }),
+                    );
+                }
             }
 
             ui.add_space(8.0);

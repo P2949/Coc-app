@@ -317,44 +317,48 @@ pub(crate) fn choice_value_is_valid(options: &[String], value: &str) -> bool {
     !value.is_empty() && options.iter().any(|option| option == value)
 }
 
-pub(crate) fn validate_occupations(occupations: &[Occupation]) {
+pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<String> {
+    let mut errors = Vec::new();
     let known: HashSet<&str> = SKILL_SPECS.iter().map(|skill| skill.name).collect();
     let mut occupation_names = HashSet::new();
 
     for occupation in occupations {
-        assert!(
-            !occupation.name.trim().is_empty(),
-            "occupation with empty name"
-        );
-        assert!(
-            occupation_names.insert(occupation.name.as_str()),
-            "duplicate occupation name `{}`",
-            occupation.name
-        );
-        assert!(
-            !occupation.formula_keys.is_empty(),
-            "occupation `{}` has no skill formula",
-            occupation.name
-        );
+        if occupation.name.trim().is_empty() {
+            errors.push("occupation with empty name".to_owned());
+        }
+        if !occupation_names.insert(occupation.name.as_str()) {
+            errors.push(format!("duplicate occupation name `{}`", occupation.name));
+        }
+        if occupation.formula_keys.is_empty() {
+            errors.push(format!(
+                "occupation `{}` has no skill formula",
+                occupation.name
+            ));
+        }
+
         let mut formula_set = HashSet::new();
         for formula in &occupation.formula_keys {
-            assert!(
-                formula_set.insert(*formula),
-                "occupation `{}` has duplicate formula `{}`",
-                occupation.name,
-                formula.label()
-            );
+            if !formula_set.insert(*formula) {
+                errors.push(format!(
+                    "occupation `{}` has duplicate formula `{}`",
+                    occupation.name,
+                    formula.label()
+                ));
+            }
         }
-        assert!(
-            occupation.credit.0 <= occupation.credit.1,
-            "occupation `{}` has inverted Credit Rating range",
-            occupation.name
-        );
-        assert!(
-            (0..=99).contains(&occupation.credit.0) && (0..=99).contains(&occupation.credit.1),
-            "occupation `{}` has out-of-range Credit Rating",
-            occupation.name
-        );
+
+        if occupation.credit.0 > occupation.credit.1 {
+            errors.push(format!(
+                "occupation `{}` has inverted Credit Rating range",
+                occupation.name
+            ));
+        }
+        if !(0..=99).contains(&occupation.credit.0) || !(0..=99).contains(&occupation.credit.1) {
+            errors.push(format!(
+                "occupation `{}` has out-of-range Credit Rating",
+                occupation.name
+            ));
+        }
 
         let slot_count: usize = occupation
             .slots
@@ -364,11 +368,12 @@ pub(crate) fn validate_occupations(occupations: &[Occupation]) {
                 Slot::Choice { count, .. } => *count,
             })
             .sum();
-        assert_eq!(
-            slot_count, 8,
-            "occupation `{}` should resolve to exactly 8 occupation skill slots",
-            occupation.name
-        );
+        if slot_count != 8 {
+            errors.push(format!(
+                "occupation `{}` should resolve to exactly 8 occupation skill slots",
+                occupation.name
+            ));
+        }
 
         let fixed_names_all: HashSet<&str> = occupation
             .slots
@@ -386,28 +391,30 @@ pub(crate) fn validate_occupations(occupations: &[Occupation]) {
         for slot in &occupation.slots {
             match slot {
                 Slot::Skill(name) => {
-                    assert!(
-                        known.contains(name.as_str()),
-                        "unknown fixed skill `{name}` in occupation `{}`",
-                        occupation.name
-                    );
-                    assert_ne!(
-                        name.as_str(),
-                        "Credit Rating",
-                        "occupation `{}` should not list Credit Rating as a fixed slot",
-                        occupation.name
-                    );
-                    assert_ne!(
-                        name.as_str(),
-                        "Cthulhu Mythos",
-                        "occupation `{}` should not grant Cthulhu Mythos at creation",
-                        occupation.name
-                    );
-                    assert!(
-                        fixed_names.insert(name.as_str()),
-                        "duplicate fixed skill `{name}` in occupation `{}`",
-                        occupation.name
-                    );
+                    if !known.contains(name.as_str()) {
+                        errors.push(format!(
+                            "unknown fixed skill `{name}` in occupation `{}`",
+                            occupation.name
+                        ));
+                    }
+                    if name.as_str() == "Credit Rating" {
+                        errors.push(format!(
+                            "occupation `{}` should not list Credit Rating as a fixed slot",
+                            occupation.name
+                        ));
+                    }
+                    if name.as_str() == "Cthulhu Mythos" {
+                        errors.push(format!(
+                            "occupation `{}` should not grant Cthulhu Mythos at creation",
+                            occupation.name
+                        ));
+                    }
+                    if !fixed_names.insert(name.as_str()) {
+                        errors.push(format!(
+                            "duplicate fixed skill `{name}` in occupation `{}`",
+                            occupation.name
+                        ));
+                    }
                 }
                 Slot::Choice {
                     id,
@@ -415,56 +422,63 @@ pub(crate) fn validate_occupations(occupations: &[Occupation]) {
                     options,
                     count,
                 } => {
-                    assert!(
-                        !id.trim().is_empty(),
-                        "occupation `{}` has a choice with an empty id",
-                        occupation.name
-                    );
-                    assert!(
-                        choice_ids.insert(id.as_str()),
-                        "duplicate choice id `{id}` in occupation `{}`",
-                        occupation.name
-                    );
-                    assert!(
-                        !label.trim().is_empty(),
-                        "choice `{id}` in occupation `{}` has an empty label",
-                        occupation.name
-                    );
-                    assert!(
-                        *count > 0,
-                        "choice `{id}` in occupation `{}` has zero count",
-                        occupation.name
-                    );
-                    assert!(
-                        options.len() >= *count,
-                        "choice `{id}` in occupation `{}` asks for more picks than it offers",
-                        occupation.name
-                    );
+                    if id.trim().is_empty() {
+                        errors.push(format!(
+                            "occupation `{}` has a choice with an empty id",
+                            occupation.name
+                        ));
+                    }
+                    if !choice_ids.insert(id.as_str()) {
+                        errors.push(format!(
+                            "duplicate choice id `{id}` in occupation `{}`",
+                            occupation.name
+                        ));
+                    }
+                    if label.trim().is_empty() {
+                        errors.push(format!(
+                            "choice `{id}` in occupation `{}` has an empty label",
+                            occupation.name
+                        ));
+                    }
+                    if *count == 0 {
+                        errors.push(format!(
+                            "choice `{id}` in occupation `{}` has zero count",
+                            occupation.name
+                        ));
+                    }
+                    if options.len() < *count {
+                        errors.push(format!(
+                            "choice `{id}` in occupation `{}` asks for more picks than it offers",
+                            occupation.name
+                        ));
+                    }
 
                     let mut seen = HashSet::new();
                     for option in options {
-                        assert!(
-                            known.contains(option.as_str()),
-                            "unknown choice skill `{option}` in occupation `{}`",
-                            occupation.name
-                        );
-                        assert_ne!(
-                            option.as_str(),
-                            "Credit Rating",
-                            "choice `{id}` in occupation `{}` should not include Credit Rating",
-                            occupation.name
-                        );
-                        assert_ne!(
-                            option.as_str(),
-                            "Cthulhu Mythos",
-                            "choice `{id}` in occupation `{}` should not include Cthulhu Mythos",
-                            occupation.name
-                        );
-                        assert!(
-                            seen.insert(option.as_str()),
-                            "duplicate option `{option}` in choice `{id}` for occupation `{}`",
-                            occupation.name
-                        );
+                        if !known.contains(option.as_str()) {
+                            errors.push(format!(
+                                "unknown choice skill `{option}` in occupation `{}`",
+                                occupation.name
+                            ));
+                        }
+                        if option.as_str() == "Credit Rating" {
+                            errors.push(format!(
+                                "choice `{id}` in occupation `{}` should not include Credit Rating",
+                                occupation.name
+                            ));
+                        }
+                        if option.as_str() == "Cthulhu Mythos" {
+                            errors.push(format!(
+                                "choice `{id}` in occupation `{}` should not include Cthulhu Mythos",
+                                occupation.name
+                            ));
+                        }
+                        if !seen.insert(option.as_str()) {
+                            errors.push(format!(
+                                "duplicate option `{option}` in choice `{id}` for occupation `{}`",
+                                occupation.name
+                            ));
+                        }
                     }
 
                     let usable_options: Vec<&str> = options
@@ -472,12 +486,13 @@ pub(crate) fn validate_occupations(occupations: &[Occupation]) {
                         .map(|option| option.as_str())
                         .filter(|option| !fixed_names_all.contains(*option))
                         .collect();
-                    assert!(
-                        usable_options.len() >= *count,
-                        "choice `{id}` in occupation `{}` has only {} selectable non-fixed option(s) for {count} required pick(s)",
-                        occupation.name,
-                        usable_options.len()
-                    );
+                    if usable_options.len() < *count {
+                        errors.push(format!(
+                            "choice `{id}` in occupation `{}` has only {} selectable non-fixed option(s) for {count} required pick(s)",
+                            occupation.name,
+                            usable_options.len()
+                        ));
+                    }
 
                     for _ in 0..*count {
                         choice_pools.push(usable_options.clone());
@@ -486,12 +501,25 @@ pub(crate) fn validate_occupations(occupations: &[Occupation]) {
             }
         }
 
-        assert!(
-            choice_pools_have_full_matching(&choice_pools),
-            "occupation `{}` has choice slots that cannot be resolved to unique non-fixed skills",
-            occupation.name
-        );
+        if !choice_pools_have_full_matching(&choice_pools) {
+            errors.push(format!(
+                "occupation `{}` has choice slots that cannot be resolved to unique non-fixed skills",
+                occupation.name
+            ));
+        }
     }
+
+    errors
+}
+
+#[cfg(test)]
+pub(crate) fn validate_occupations(occupations: &[Occupation]) {
+    let errors = occupation_validation_errors(occupations);
+    assert!(
+        errors.is_empty(),
+        "occupation validation failed:\n{}",
+        errors.join("\n")
+    );
 }
 
 pub(crate) fn build_occupations() -> Vec<Occupation> {

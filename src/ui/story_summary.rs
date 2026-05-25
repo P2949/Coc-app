@@ -67,32 +67,36 @@ impl CoC7eApp {
         let credit_out = has_occupation && (credit < credit_min || credit > credit_max);
         let skills_over = skill_rows.iter().any(|row| row.total > MAX_CREATION_VALUE);
         let summary_blockers = self.summary_blockers_for(&math);
+        let name = self.concept.name.trim();
+        let pronouns = self.concept.pronouns.trim();
+        let residence = self.concept.residence.trim();
+        let birthplace = self.concept.birthplace.trim();
 
         card(ui, |ui| {
             ui.label(
-                RichText::new(if self.concept.name.trim().is_empty() {
+                RichText::new(if name.is_empty() {
                     "Unnamed Investigator"
                 } else {
-                    &self.concept.name
+                    name
                 })
                 .size(28.0)
                 .strong()
                 .color(TEXT),
             );
             let mut line = format!("{occupation_name} · Age {}", self.concept.age);
-            if !self.concept.pronouns.trim().is_empty() {
-                line.push_str(&format!(" · {}", self.concept.pronouns));
+            if !pronouns.is_empty() {
+                line.push_str(&format!(" · {pronouns}"));
             }
             ui.label(RichText::new(line).color(MUTED));
             let mut place = String::new();
-            if !self.concept.residence.trim().is_empty() {
-                place.push_str(&format!("Residence: {}", self.concept.residence));
+            if !residence.is_empty() {
+                place.push_str(&format!("Residence: {residence}"));
             }
-            if !self.concept.birthplace.trim().is_empty() {
+            if !birthplace.is_empty() {
                 if !place.is_empty() {
                     place.push_str(" · ");
                 }
-                place.push_str(&format!("Born: {}", self.concept.birthplace));
+                place.push_str(&format!("Born: {birthplace}"));
             }
             if !place.is_empty() {
                 ui.label(RichText::new(place).small().color(FAINT));
@@ -379,7 +383,7 @@ impl CoC7eApp {
                     {
                         ui.add_space(6.0);
                         ui.label(RichText::new(*category).small().monospace().color(ACCENT));
-                        ui.label(RichText::new(value).color(TEXT));
+                        ui.label(RichText::new(value.trim()).color(TEXT));
                     }
                 }
             });
@@ -422,13 +426,17 @@ impl CoC7eApp {
         let derived = &math.derived;
         let skill_rows = &math.skill_rows;
         let mut out = String::new();
+        let name = self.concept.name.trim();
+        let pronouns = self.concept.pronouns.trim();
+        let residence = self.concept.residence.trim();
+        let birthplace = self.concept.birthplace.trim();
 
         push_line(
             &mut out,
-            if self.concept.name.trim().is_empty() {
+            if name.is_empty() {
                 "Unnamed Investigator"
             } else {
-                &self.concept.name
+                name
             },
         );
         push_line(
@@ -436,17 +444,14 @@ impl CoC7eApp {
             format!("Occupation: {}", self.selected_occupation_name()),
         );
         push_line(&mut out, format!("Age: {}", self.concept.age));
-        if !self.concept.pronouns.trim().is_empty() {
-            push_line(
-                &mut out,
-                format!("Pronouns/Gender: {}", self.concept.pronouns),
-            );
+        if !pronouns.is_empty() {
+            push_line(&mut out, format!("Pronouns/Gender: {pronouns}"));
         }
-        if !self.concept.residence.trim().is_empty() {
-            push_line(&mut out, format!("Residence: {}", self.concept.residence));
+        if !residence.is_empty() {
+            push_line(&mut out, format!("Residence: {residence}"));
         }
-        if !self.concept.birthplace.trim().is_empty() {
-            push_line(&mut out, format!("Birthplace: {}", self.concept.birthplace));
+        if !birthplace.is_empty() {
+            push_line(&mut out, format!("Birthplace: {birthplace}"));
         }
 
         push_blank_line(&mut out);
@@ -535,7 +540,7 @@ impl CoC7eApp {
                     .get(*category)
                     .filter(|value| !value.trim().is_empty())
                 {
-                    push_line(&mut out, format!("{}: {}", category, value));
+                    push_line(&mut out, format!("{}: {}", category, value.trim()));
                 }
             }
         }

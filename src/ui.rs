@@ -71,11 +71,13 @@ impl CoC7eApp {
             .map(|duration| duration.as_nanos() as u64)
             .unwrap_or(0xC0C7_E7E5_1234_5678);
 
-        validate_skill_constants();
         let occupations = build_occupations();
-        validate_occupations(&occupations);
+        let mut startup_validation_errors = skill_constant_validation_errors();
+        startup_validation_errors.extend(occupation_validation_errors(&occupations));
 
-        Self::fresh(occupations, seed | 1)
+        let mut app = Self::fresh(occupations, seed | 1);
+        app.startup_validation_errors = startup_validation_errors;
+        app
     }
 
     pub(crate) fn fresh(occupations: Vec<Occupation>, rng_state: u64) -> Self {
@@ -98,6 +100,7 @@ impl CoC7eApp {
             allocations: AllocationState::default(),
             backstory: HashMap::new(),
             occupations,
+            startup_validation_errors: Vec::new(),
             last_age_bracket_index: age_index,
             frame_max_reachable_step: 2,
             rng: AppRng::seeded(rng_state),
@@ -693,6 +696,22 @@ impl CoC7eApp {
             .sum()
     }
 
+    pub(crate) fn max_possible_physical_deduction(&self) -> i32 {
+        self.age_bracket()
+            .physical_from
+            .iter()
+            .map(|key| max_physical_deduction_for_raw(self.chars.get_char(*key)))
+            .sum()
+    }
+
+    pub(crate) fn physical_deduction_is_possible(&self) -> bool {
+        self.max_possible_physical_deduction() >= self.age_bracket().physical_deduct
+    }
+
+    pub(crate) fn physical_deduction_is_complete(&self) -> bool {
+        self.physical_deduction_total() == self.age_bracket().physical_deduct
+    }
+
     pub(crate) fn max_age_deduction_for(&self, key: Characteristic) -> i32 {
         let bracket = self.age_bracket();
         if !bracket.physical_from.contains(&key) || bracket.physical_deduct == 0 {
@@ -926,10 +945,18 @@ impl CoC7eApp {
             blockers.push("missing characteristics".to_owned());
         }
         if physical_total != bracket.physical_deduct {
-            blockers.push(format!(
-                "age deductions {physical_total}/{}",
-                bracket.physical_deduct
-            ));
+            if self.physical_deduction_is_possible() {
+                blockers.push(format!(
+                    "age deductions {physical_total}/{}",
+                    bracket.physical_deduct
+                ));
+            } else {
+                blockers.push(format!(
+                    "age deductions impossible: requires {}, current STR/CON/DEX can absorb only {}",
+                    bracket.physical_deduct,
+                    self.max_possible_physical_deduction()
+                ));
+            }
         }
         if !self.edu_age_checks_complete() {
             blockers.push(format!(
@@ -1203,11 +1230,13 @@ impl CoC7eApp {
 
     pub(crate) fn reset_investigator(&mut self) {
         let occupations = std::mem::take(&mut self.occupations);
+        let startup_validation_errors = std::mem::take(&mut self.startup_validation_errors);
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos() as u64)
             .unwrap_or(0xC0C7_E7E5_1234_5678);
         *self = Self::fresh(occupations, seed | 1);
+        self.startup_validation_errors = startup_validation_errors;
     }
 
     pub(crate) fn max_reachable_step(&self) -> usize {
@@ -1229,12 +1258,15 @@ impl CoC7eApp {
         }
 
         // Step 5, Backstory, is intentionally optional.
-        // Summary unlocks once characteristics, occupation choices, required physical age
-        // deductions, and required EDU age checks are resolved; remaining allocation,
-        // credit, Luck, and skill-cap issues are surfaced as rule checks on the Summary page.
-        let physical_complete =
-            self.physical_deduction_total() == self.age_bracket().physical_deduct;
-        if physical_complete && self.edu_age_checks_complete() {
+        // Step 6 usually unlocks once required physical age deductions and EDU
+        // checks are resolved. If the age deduction cannot be satisfied with the
+        // current STR/CON/DEX values, Summary still unlocks so the blocker can
+        // explain the impossible state instead of leaving the user at a dead end.
+        // Remaining allocation, credit, Luck, and skill-cap issues are surfaced
+        // as rule checks on the Summary page.
+        let physical_ready_for_summary =
+            self.physical_deduction_is_complete() || !self.physical_deduction_is_possible();
+        if physical_ready_for_summary && self.edu_age_checks_complete() {
             6
         } else {
             5
@@ -1323,10 +1355,35 @@ impl CoC7eApp {
             });
         });
     }
+
+    pub(crate) fn render_startup_validation_error(&self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            ui.label(
+                RichText::new("Internal ruleset validation failed")
+                    .size(22.0)
+                    .color(RED)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new(
+                    "The built-in skill or occupation data is inconsistent, so normal character creation has been disabled instead of panicking during startup.",
+                )
+                .color(MUTED),
+            );
+            ui.add_space(8.0);
+            for error in &self.startup_validation_errors {
+                ui.label(RichText::new(format!("• {error}")).small().color(AMBER));
+            }
+        });
+    }
 }
 
 impl eframe::App for CoC7eApp {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if !self.startup_validation_errors.is_empty() {
+            return;
+        }
+
         self.sync_age_bracket();
         self.sanitize_state();
         self.refresh_reachability();
@@ -1344,6 +1401,12 @@ impl eframe::App for CoC7eApp {
                         ui.set_max_width(APP_CONTENT_WIDTH);
 
                         self.top_bar(ui);
+
+                        if !self.startup_validation_errors.is_empty() {
+                            self.render_startup_validation_error(ui);
+                            return;
+                        }
+
                         self.step_bar(ui);
 
                         match self.step {
