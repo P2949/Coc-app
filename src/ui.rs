@@ -388,11 +388,6 @@ impl CoC7eApp {
         })
     }
 
-    pub(crate) fn occupation_skill_set(&self) -> HashSet<String> {
-        let selected_occupation = self.selected_occupation();
-        self.occupation_skill_set_for(selected_occupation.as_ref())
-    }
-
     pub(crate) fn unresolved_choice_count_for(&self, occupation: &Occupation) -> usize {
         occupation
             .slots
@@ -587,6 +582,39 @@ impl CoC7eApp {
         self.formula_key = self.active_formula_key_for(occupation);
     }
 
+    pub(crate) fn sanitize_allocations(&mut self) {
+        let skill_rows = self.sheet_math().skill_rows;
+        let mut occupation_points = HashMap::new();
+        let mut personal_points = HashMap::new();
+
+        for row in skill_rows {
+            if row.occ_add > 0 {
+                occupation_points.insert(row.name.clone(), row.occ_add);
+            }
+            if row.personal_add > 0 {
+                personal_points.insert(row.name, row.personal_add);
+            }
+        }
+
+        self.allocations.occupation_points = occupation_points;
+        self.allocations.personal_points = personal_points;
+    }
+
+    pub(crate) fn sanitize_state(&mut self) {
+        self.normalize_custom_occupation_skills();
+        let selected_occupation = self.selected_occupation();
+
+        if let Some(occupation) = selected_occupation.as_ref() {
+            self.normalize_formula_key_for(Some(occupation));
+            self.prune_occupation_choices_for(occupation);
+        } else {
+            self.occupation_choices.clear();
+            self.formula_key = FormulaKey::Edu4;
+        }
+
+        self.sanitize_allocations();
+    }
+
     pub(crate) fn personal_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
         final_chars.get_char(Characteristic::Int) * 2
     }
@@ -610,7 +638,8 @@ impl CoC7eApp {
     #[cfg(test)]
     pub(crate) fn credit_rating(&self) -> i32 {
         let final_chars = self.final_chars();
-        let occupation_skill_set = self.occupation_skill_set();
+        let selected_occupation = self.selected_occupation();
+        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
         self.credit_rating_for_with_skills(&final_chars, &occupation_skill_set)
     }
 
@@ -750,16 +779,11 @@ impl CoC7eApp {
     }
 
     pub(crate) fn prune_occupation_allocations(&mut self) {
-        let allowed = self.occupation_skill_set();
-        self.allocations
-            .occupation_points
-            .retain(|skill, value| allowed.contains(skill) && *value > 0);
+        self.sanitize_allocations();
     }
 
     pub(crate) fn prune_personal_allocations(&mut self) {
-        self.allocations
-            .personal_points
-            .retain(|skill, value| skill_accepts_personal_points(skill.as_str()) && *value > 0);
+        self.sanitize_allocations();
     }
 
     pub(crate) fn apply_quick_skill_package(&mut self) {
@@ -925,6 +949,7 @@ impl CoC7eApp {
 impl eframe::App for CoC7eApp {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.sync_age_bracket();
+        self.sanitize_state();
         self.refresh_reachability();
     }
 

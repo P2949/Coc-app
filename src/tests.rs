@@ -384,7 +384,7 @@ fn prune_occupation_allocations_removes_credit_rating_without_occupation() {
         .occupation_points
         .insert("Library Use".to_owned(), 20);
 
-    assert!(app.occupation_skill_set().is_empty());
+    assert!(app.sheet_math().occupation_skill_set.is_empty());
 
     app.prune_occupation_allocations();
 
@@ -517,7 +517,7 @@ fn credit_rating_ignores_stale_occupation_points_without_occupation() {
         .occupation_points
         .insert("Credit Rating".to_owned(), 50);
 
-    assert!(app.occupation_skill_set().is_empty());
+    assert!(app.sheet_math().occupation_skill_set.is_empty());
     assert_eq!(app.used_occupation_points(), 0);
     assert_eq!(app.credit_rating(), 0);
 }
@@ -606,6 +606,132 @@ fn allocation_math_sanitizes_stale_allowed_values() {
     assert_eq!(spot_hidden.personal_add, 0);
     assert_eq!(app.used_occupation_points(), first_aid.occ_add);
     assert_eq!(app.used_personal_points(), library_use.personal_add);
+}
+
+#[test]
+fn prune_allocation_sanitizers_rewrite_stale_allowed_values() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+    app.allocations
+        .occupation_points
+        .insert("First Aid".to_owned(), 500);
+    app.allocations
+        .occupation_points
+        .insert("Library Use".to_owned(), 500);
+    app.allocations
+        .personal_points
+        .insert("Library Use".to_owned(), 500);
+    app.allocations
+        .personal_points
+        .insert("Spot Hidden".to_owned(), -20);
+
+    app.prune_occupation_allocations();
+
+    let math = app.sheet_math();
+    let first_aid = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "First Aid")
+        .expect("First Aid row should exist");
+    let library_use = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Library Use")
+        .expect("Library Use row should exist");
+
+    assert_eq!(
+        app.allocations.occupation_points.get("First Aid"),
+        Some(&first_aid.occ_add)
+    );
+    assert!(
+        !app.allocations
+            .occupation_points
+            .contains_key("Library Use")
+    );
+    assert_eq!(
+        app.allocations.personal_points.get("Library Use"),
+        Some(&library_use.personal_add)
+    );
+    assert!(!app.allocations.personal_points.contains_key("Spot Hidden"));
+}
+
+#[test]
+fn sanitize_state_cleans_imported_boundary_state() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Soldier".to_owned());
+    app.formula_key = FormulaKey::Edu4;
+    app.custom_occupation.skills = vec!["Library Use".to_owned()];
+    app.occupation_choices.insert(
+        ChoiceKey::new("soldier-climb-swim", 0),
+        "Bogus Skill".to_owned(),
+    );
+    app.occupation_choices.insert(
+        ChoiceKey::new("nurse-interpersonal", 0),
+        "Persuade".to_owned(),
+    );
+    app.allocations
+        .occupation_points
+        .insert("Dodge".to_owned(), 500);
+    app.allocations
+        .occupation_points
+        .insert("Library Use".to_owned(), 500);
+    app.allocations
+        .personal_points
+        .insert("Library Use".to_owned(), 500);
+
+    app.sanitize_state();
+
+    let math = app.sheet_math();
+    let dodge_occ_add = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Dodge")
+        .expect("Dodge row should exist")
+        .occ_add;
+
+    assert_eq!(app.formula_key, FormulaKey::Edu2Dex2);
+    assert_eq!(
+        app.custom_occupation.skills.len(),
+        CUSTOM_OCCUPATION_SKILL_COUNT
+    );
+    assert!(app.occupation_choices.is_empty());
+    assert_eq!(
+        app.allocations.occupation_points.get("Dodge"),
+        Some(&dodge_occ_add)
+    );
+    assert!(
+        !app.allocations
+            .occupation_points
+            .contains_key("Library Use")
+    );
+    assert!(app.allocations.personal_points.contains_key("Library Use"));
 }
 
 #[test]
@@ -948,9 +1074,10 @@ fn sheet_math_uses_shared_occupation_skill_set() {
     app.set_occupation("Nurse".to_owned());
     resolve_nurse_choice(&mut app);
 
+    let selected_occupation = app.selected_occupation();
     assert_eq!(
         app.sheet_math().occupation_skill_set,
-        app.occupation_skill_set()
+        app.occupation_skill_set_for(selected_occupation.as_ref())
     );
 }
 

@@ -21,24 +21,24 @@ impl CoC7eApp {
 
         card(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-            let quick_response = ui.add_enabled(
-                !initial_no_occupation && initial_unresolved == 0 && initial_shortfall == 0,
-                egui::Button::new("Replace with starter skill spread"),
-            );
-            if quick_response.clicked() {
-                self.apply_quick_skill_package();
-                math = self.sheet_math();
-            }
-            quick_response.on_hover_text("Replaces current occupation allocations. Sets Credit Rating to the occupation minimum (skipped if the minimum is 0), then applies a starter target spread to eligible skills sorted by current base value, lowest first. This is intentionally not guaranteed to spend every occupation point.");
-            if ui.button("Clear occupation points").clicked() {
-                self.allocations.occupation_points.clear();
-                math = self.sheet_math();
-            }
-            if ui.button("Clear personal points").clicked() {
-                self.allocations.personal_points.clear();
-                math = self.sheet_math();
-            }
-        });
+                let quick_response = ui.add_enabled(
+                    !initial_no_occupation && initial_unresolved == 0 && initial_shortfall == 0,
+                    egui::Button::new("Replace with starter skill spread"),
+                );
+                if quick_response.clicked() {
+                    self.apply_quick_skill_package();
+                    math = self.sheet_math();
+                }
+                quick_response.on_hover_text("Replaces current occupation allocations. Sets Credit Rating to the occupation minimum (skipped if the minimum is 0), then applies a starter target spread to eligible skills sorted by current base value, lowest first. This is intentionally not guaranteed to spend every occupation point.");
+                if ui.button("Clear occupation points").clicked() {
+                    self.allocations.occupation_points.clear();
+                    math = self.sheet_math();
+                }
+                if ui.button("Clear personal points").clicked() {
+                    self.allocations.personal_points.clear();
+                    math = self.sheet_math();
+                }
+            });
 
             ui.add_space(8.0);
 
