@@ -18,9 +18,9 @@ pub(crate) fn apply_dark_theme(ctx: &egui::Context) {
     visuals.selection.bg_fill = ACCENT_DIM;
 
     visuals.widgets.noninteractive.bg_fill = PANEL;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     visuals.widgets.inactive.bg_fill = Color32::from_rgb(18, 21, 29);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(26, 30, 41);
     visuals.widgets.active.bg_fill = ACCENT_DIM;
 
@@ -30,7 +30,7 @@ pub(crate) fn apply_dark_theme(ctx: &egui::Context) {
 pub(crate) fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, LINE))
+        .stroke(Stroke::new(1.0_f32, LINE))
         .corner_radius(egui::CornerRadius::same(14))
         .inner_margin(egui::Margin::same(14))
         .show(ui, add)
@@ -86,7 +86,7 @@ pub(crate) fn pill(ui: &mut egui::Ui, text: impl Into<String>, color: Color32) {
             24,
         ))
         .stroke(Stroke::new(
-            1.0,
+            1.0_f32,
             Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 70),
         ))
         .corner_radius(egui::CornerRadius::same(12))
@@ -121,7 +121,7 @@ pub(crate) fn rule_check(ui: &mut egui::Ui, state: CheckState, text: impl Into<S
 pub(crate) fn stat_box(ui: &mut egui::Ui, label: &str, value: impl ToString, color: Color32) {
     egui::Frame::new()
         .fill(PANEL_2)
-        .stroke(Stroke::new(1.0, LINE))
+        .stroke(Stroke::new(1.0_f32, LINE))
         .corner_radius(egui::CornerRadius::same(10))
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
@@ -146,7 +146,7 @@ pub(crate) fn dice_display(ui: &mut egui::Ui, result: &DiceResult, label: Option
         for roll in &result.rolls {
             egui::Frame::new()
                 .fill(Color32::from_rgb(16, 19, 27))
-                .stroke(Stroke::new(1.0, LINE))
+                .stroke(Stroke::new(1.0_f32, LINE))
                 .corner_radius(egui::CornerRadius::same(7))
                 .inner_margin(egui::Margin::same(6))
                 .show(ui, |ui| {

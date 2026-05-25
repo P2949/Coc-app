@@ -1,21 +1,3 @@
-/*
-Cargo.toml
-
-[package]
-name = "coc7e_investigator_creator"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-eframe = "0.34"
-rand = { version = "0.10", features = ["small_rng"] }
-
-Run:
-  cargo fmt
-  cargo test
-  cargo run --release
-*/
-
 use eframe::egui::Color32;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use std::collections::{HashMap, HashSet};

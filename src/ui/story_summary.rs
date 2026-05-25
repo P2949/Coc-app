@@ -338,7 +338,7 @@ impl CoC7eApp {
                 })
                 .collect();
             egui::Grid::new("summary_skills")
-                .num_columns(2)
+                .num_columns(4)
                 .spacing([20.0, 6.0])
                 .show(ui, |ui| {
                     for (index, row) in final_skills.iter().enumerate() {

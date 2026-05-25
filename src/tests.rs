@@ -190,6 +190,26 @@ fn final_chars_apply_young_age_edu_penalty() {
 }
 
 #[test]
+fn final_chars_preserve_unset_characteristics() {
+    let mut app = test_app();
+    app.concept.age = 89;
+    app.sync_age_bracket();
+    app.age_deductions.set_char(Characteristic::Str, 90);
+    app.edu_bonus = 10;
+
+    let final_chars = app.final_chars();
+
+    for def in CHARACTERISTICS {
+        assert_eq!(
+            final_chars.get_char(def.key),
+            0,
+            "{} should remain unset",
+            def.key.key()
+        );
+    }
+}
+
+#[test]
 fn edu_age_checks_do_nothing_when_age_bracket_has_no_checks() {
     let mut app = test_app();
     app.apply_characteristic_preset(
@@ -355,6 +375,23 @@ fn prune_occupation_allocations_removes_skills_no_longer_allowed() {
 }
 
 #[test]
+fn prune_occupation_allocations_removes_credit_rating_without_occupation() {
+    let mut app = test_app();
+    app.allocations
+        .occupation_points
+        .insert("Credit Rating".to_owned(), 10);
+    app.allocations
+        .occupation_points
+        .insert("Library Use".to_owned(), 20);
+
+    assert!(app.occupation_skill_set().is_empty());
+
+    app.prune_occupation_allocations();
+
+    assert!(app.allocations.occupation_points.is_empty());
+}
+
+#[test]
 fn max_reachable_step_does_not_jump_to_skills_without_characteristics() {
     let mut app = test_app();
     app.set_occupation("Soldier".to_owned());
@@ -483,6 +520,53 @@ fn quick_skill_package_sets_credit_rating_to_occupation_minimum() {
         Some(&9)
     );
     assert!(app.credit_rating() <= 30);
+}
+
+#[test]
+fn custom_occupation_discards_unknown_and_reserved_skills() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.custom_occupation.skills = vec![
+        "Library Use".to_owned(),
+        "Spot Hidden".to_owned(),
+        "Bogus Skill".to_owned(),
+        "Credit Rating".to_owned(),
+        "Cthulhu Mythos".to_owned(),
+        "Listen".to_owned(),
+        "Stealth".to_owned(),
+        "Persuade".to_owned(),
+    ];
+
+    let occupation = app
+        .selected_occupation()
+        .expect("custom occupation should exist");
+    let resolved = app.resolved_occupation_skills_for(&occupation);
+
+    assert_eq!(
+        resolved,
+        vec![
+            "Library Use".to_owned(),
+            "Spot Hidden".to_owned(),
+            "Listen".to_owned(),
+            "Stealth".to_owned(),
+            "Persuade".to_owned(),
+        ]
+    );
+    assert_eq!(app.unique_occupation_shortfall_for(&occupation), 3);
+    assert_eq!(app.max_reachable_step(), 4);
 }
 
 #[test]

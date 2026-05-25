@@ -34,6 +34,14 @@ pub fn run() -> eframe::Result {
     )
 }
 
+fn adjusted_final_characteristic(raw: i32, delta: i32) -> i32 {
+    if raw <= 0 {
+        0
+    } else {
+        (raw + delta).clamp(1, MAX_CREATION_VALUE)
+    }
+}
+
 impl CoC7eApp {
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_dark_theme(&cc.egui_ctx);
@@ -198,19 +206,19 @@ impl CoC7eApp {
         for key in bracket.physical_from {
             let value = out.get_char(*key);
             let deduction = self.effective_physical_deduction_for(*key);
-            out.set_char(*key, (value - deduction).clamp(1, MAX_CREATION_VALUE));
+            out.set_char(*key, adjusted_final_characteristic(value, -deduction));
         }
 
         let app = out.get_char(Characteristic::App);
         out.set_char(
             Characteristic::App,
-            (app - bracket.app_penalty).clamp(1, MAX_CREATION_VALUE),
+            adjusted_final_characteristic(app, -bracket.app_penalty),
         );
 
         let edu = out.get_char(Characteristic::Edu);
         out.set_char(
             Characteristic::Edu,
-            (edu - bracket.edu_penalty + self.edu_bonus).clamp(1, MAX_CREATION_VALUE),
+            adjusted_final_characteristic(edu, -bracket.edu_penalty + self.edu_bonus),
         );
 
         out
@@ -249,7 +257,9 @@ impl CoC7eApp {
                 .skills
                 .iter()
                 .map(|skill| skill.trim().to_owned())
-                .filter(|skill| !skill.is_empty()),
+                .filter(|skill| {
+                    !skill.is_empty() && OCCUPATION_SELECTABLE_SKILLS.contains(&skill.as_str())
+                }),
         );
 
         Occupation {
@@ -273,14 +283,6 @@ impl CoC7eApp {
         };
         self.occupation_choices.clear();
         self.allocations.occupation_points.clear();
-    }
-
-    pub(crate) fn resolved_occupation_skills(&self) -> Vec<String> {
-        self.selected_occupation()
-            .as_ref()
-            .map_or_else(Vec::new, |occupation| {
-                self.resolved_occupation_skills_for(occupation)
-            })
     }
 
     pub(crate) fn resolved_occupation_skills_for(&self, occupation: &Occupation) -> Vec<String> {
@@ -307,9 +309,16 @@ impl CoC7eApp {
     }
 
     pub(crate) fn occupation_skill_set(&self) -> HashSet<String> {
-        let mut set: HashSet<String> = self.resolved_occupation_skills().into_iter().collect();
-        set.insert("Credit Rating".to_owned());
-        set
+        self.selected_occupation()
+            .as_ref()
+            .map_or_else(HashSet::new, |occupation| {
+                let mut set: HashSet<String> = self
+                    .resolved_occupation_skills_for(occupation)
+                    .into_iter()
+                    .collect();
+                set.insert("Credit Rating".to_owned());
+                set
+            })
     }
 
     pub(crate) fn unresolved_choice_count_for(&self, occupation: &Occupation) -> usize {

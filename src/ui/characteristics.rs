@@ -95,7 +95,7 @@ impl CoC7eApp {
 
                 egui::Frame::new()
                     .fill(PANEL_2)
-                    .stroke(Stroke::new(1.0, LINE))
+                    .stroke(Stroke::new(1.0_f32, LINE))
                     .corner_radius(egui::CornerRadius::same(10))
                     .inner_margin(egui::Margin::same(10))
                     .show(ui, |ui| {
