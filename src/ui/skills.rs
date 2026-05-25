@@ -31,11 +31,11 @@ impl CoC7eApp {
                 }
                 quick_response.on_hover_text("Replaces current occupation allocations. Sets Credit Rating to the occupation minimum (skipped if the minimum is 0), then applies a starter target spread to eligible skills sorted by current base value, lowest first. This is intentionally not guaranteed to spend every occupation point.");
                 if ui.button("Clear occupation points").clicked() {
-                    self.allocations.occupation_points.clear();
+                    self.clear_occupation_allocations();
                     math = self.sheet_math();
                 }
                 if ui.button("Clear personal points").clicked() {
-                    self.allocations.personal_points.clear();
+                    self.clear_personal_allocations();
                     math = self.sheet_math();
                 }
             });
@@ -44,8 +44,8 @@ impl CoC7eApp {
 
             let occ_budget = math.occupation_budget;
             let personal_budget = math.personal_budget;
-            let used_occ = self.used_occupation_points();
-            let used_personal = self.used_personal_points();
+            let used_occ = CoC7eApp::used_occupation_points_from(&math.skill_rows);
+            let used_personal = CoC7eApp::used_personal_points_from(&math.skill_rows);
             let credit = math.credit_rating;
             let (credit_min, credit_max) = math.credit_range;
             let no_occupation = math.selected_occupation.is_none();
@@ -165,12 +165,7 @@ impl CoC7eApp {
                                     )
                                     .changed()
                                 {
-                                    set_allocation(
-                                        &mut self.allocations.occupation_points,
-                                        &row.name,
-                                        occ_value,
-                                        occ_max,
-                                    );
+                                    self.set_occupation_allocation(&row.name, occ_value, occ_max);
                                 }
 
                                 let mut personal_value =
@@ -184,8 +179,7 @@ impl CoC7eApp {
                                     )
                                     .changed()
                                 {
-                                    set_allocation(
-                                        &mut self.allocations.personal_points,
+                                    self.set_personal_allocation(
                                         &row.name,
                                         personal_value,
                                         personal_max,

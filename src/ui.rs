@@ -212,6 +212,7 @@ impl CoC7eApp {
             if key == "EDU" {
                 self.clear_edu_age_checks();
             }
+            self.sanitize_age_deductions();
         }
     }
 
@@ -282,8 +283,11 @@ impl CoC7eApp {
             .truncate(CUSTOM_OCCUPATION_SKILL_COUNT);
     }
 
-    pub(crate) fn prune_occupation_choices_for(&mut self, occupation: &Occupation) {
-        let mut valid_choices: HashMap<ChoiceKey, &[String]> = HashMap::new();
+    fn occupation_choice_slots<'a>(
+        &self,
+        occupation: &'a Occupation,
+    ) -> Vec<(ChoiceKey, &'a [String])> {
+        let mut slots = Vec::new();
 
         for slot in &occupation.slots {
             if let Slot::Choice {
@@ -291,18 +295,52 @@ impl CoC7eApp {
             } = slot
             {
                 for index in 0..*count {
-                    valid_choices.insert(ChoiceKey::new(id.clone(), index), options.as_slice());
+                    slots.push((ChoiceKey::new(id.clone(), index), options.as_slice()));
                 }
             }
         }
 
-        self.occupation_choices.retain(|key, value| {
+        slots
+    }
+
+    fn valid_choice_values_for(&self, occupation: &Occupation) -> Vec<String> {
+        let mut used: HashSet<String> = fixed_skill_set_for(occupation)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut out = Vec::new();
+
+        for (key, options) in self.occupation_choice_slots(occupation) {
+            let Some(value) = self.occupation_choices.get(&key) else {
+                continue;
+            };
             let value = value.trim();
-            !value.is_empty()
-                && valid_choices
-                    .get(key)
-                    .is_some_and(|options| choice_value_is_valid(options, value))
-        });
+            if choice_value_is_valid(options, value) && used.insert(value.to_owned()) {
+                out.push(value.to_owned());
+            }
+        }
+
+        out
+    }
+
+    pub(crate) fn prune_occupation_choices_for(&mut self, occupation: &Occupation) {
+        let mut used: HashSet<String> = fixed_skill_set_for(occupation)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut cleaned = HashMap::new();
+
+        for (key, options) in self.occupation_choice_slots(occupation) {
+            let Some(value) = self.occupation_choices.get(&key) else {
+                continue;
+            };
+            let value = value.trim();
+            if choice_value_is_valid(options, value) && used.insert(value.to_owned()) {
+                cleaned.insert(key, value.to_owned());
+            }
+        }
+
+        self.occupation_choices = cleaned;
     }
 
     pub(crate) fn build_custom_occupation(&self) -> Occupation {
@@ -351,26 +389,104 @@ impl CoC7eApp {
         self.allocations.occupation_points.clear();
     }
 
+    pub(crate) fn set_formula_key(&mut self, next: FormulaKey) {
+        let selected_occupation = self.selected_occupation();
+        self.formula_key = match selected_occupation.as_ref() {
+            Some(occupation) if occupation.formula_keys.contains(&next) => next,
+            Some(occupation) => occupation
+                .formula_keys
+                .first()
+                .copied()
+                .unwrap_or(FormulaKey::Edu4),
+            None => FormulaKey::Edu4,
+        };
+    }
+
+    pub(crate) fn set_custom_formula_key(&mut self, next: FormulaKey) {
+        self.custom_occupation.formula_key = next;
+        if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            self.formula_key = next;
+        }
+    }
+
+    pub(crate) fn set_custom_occupation_skill(&mut self, index: usize, next: String) -> bool {
+        self.normalize_custom_occupation_skills();
+        if index >= CUSTOM_OCCUPATION_SKILL_COUNT {
+            return false;
+        }
+
+        let normalized = next.trim().to_owned();
+        if normalized.is_empty() {
+            self.custom_occupation.skills[index].clear();
+            self.prune_occupation_allocations();
+            return true;
+        }
+        if !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str()) {
+            return false;
+        }
+        if self
+            .custom_occupation
+            .skills
+            .iter()
+            .enumerate()
+            .any(|(other_index, value)| other_index != index && value.trim() == normalized.as_str())
+        {
+            return false;
+        }
+
+        self.custom_occupation.skills[index] = normalized;
+        self.prune_occupation_allocations();
+        true
+    }
+
+    pub(crate) fn set_occupation_choice(
+        &mut self,
+        occupation: &Occupation,
+        key: ChoiceKey,
+        next: String,
+    ) -> bool {
+        let normalized = next.trim().to_owned();
+        if normalized.is_empty() {
+            self.occupation_choices.remove(&key);
+            self.prune_occupation_allocations();
+            return true;
+        }
+
+        let Some((_, options)) = self
+            .occupation_choice_slots(occupation)
+            .into_iter()
+            .find(|(choice_key, _)| choice_key == &key)
+        else {
+            return false;
+        };
+
+        if !choice_value_is_valid(options, &normalized) {
+            return false;
+        }
+        if fixed_skill_set_for(occupation).contains(normalized.as_str()) {
+            return false;
+        }
+        if self
+            .occupation_choices
+            .iter()
+            .any(|(choice_key, value)| choice_key != &key && value.trim() == normalized)
+        {
+            return false;
+        }
+
+        self.occupation_choices.insert(key, normalized);
+        self.prune_occupation_allocations();
+        true
+    }
+
     pub(crate) fn resolved_occupation_skills_for(&self, occupation: &Occupation) -> Vec<String> {
         let mut resolved = Vec::new();
         for slot in &occupation.slots {
-            match slot {
-                Slot::Skill(name) => resolved.push(name.clone()),
-                Slot::Choice {
-                    id, options, count, ..
-                } => {
-                    for index in 0..*count {
-                        let key = ChoiceKey::new(id.to_owned(), index);
-                        if let Some(value) = self.occupation_choices.get(&key) {
-                            let value = value.trim();
-                            if choice_value_is_valid(options, value) {
-                                resolved.push(value.to_owned());
-                            }
-                        }
-                    }
-                }
+            if let Slot::Skill(name) = slot {
+                resolved.push(name.clone());
             }
         }
+        resolved.extend(self.valid_choice_values_for(occupation));
         unique_strings(resolved)
     }
 
@@ -389,23 +505,24 @@ impl CoC7eApp {
     }
 
     pub(crate) fn unresolved_choice_count_for(&self, occupation: &Occupation) -> usize {
-        occupation
-            .slots
-            .iter()
-            .map(|slot| match slot {
-                Slot::Choice {
-                    id, options, count, ..
-                } => (0..*count)
-                    .filter(|index| {
-                        let key = ChoiceKey::new(id.to_owned(), *index);
-                        self.occupation_choices
-                            .get(&key)
-                            .is_none_or(|value| !choice_value_is_valid(options, value))
-                    })
-                    .count(),
-                Slot::Skill(_) => 0,
-            })
-            .sum()
+        let mut used: HashSet<String> = fixed_skill_set_for(occupation)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut unresolved = 0;
+
+        for (key, options) in self.occupation_choice_slots(occupation) {
+            let Some(value) = self.occupation_choices.get(&key) else {
+                unresolved += 1;
+                continue;
+            };
+            let value = value.trim();
+            if !choice_value_is_valid(options, value) || !used.insert(value.to_owned()) {
+                unresolved += 1;
+            }
+        }
+
+        unresolved
     }
 
     pub(crate) fn occupation_slot_count_for(&self, occupation: &Occupation) -> usize {
@@ -559,6 +676,53 @@ impl CoC7eApp {
             .sum()
     }
 
+    pub(crate) fn max_age_deduction_for(&self, key: Characteristic) -> i32 {
+        let bracket = self.age_bracket();
+        if !bracket.physical_from.contains(&key) || bracket.physical_deduct == 0 {
+            return 0;
+        }
+
+        let current_effective = self.effective_physical_deduction_for(key);
+        let other_effective_total = self.physical_deduction_total() - current_effective;
+        let remaining_effective = (bracket.physical_deduct - other_effective_total).max(0);
+        let max_effective_for_key = max_physical_deduction_for_raw(self.chars.get_char(key));
+        remaining_effective.min(max_effective_for_key).max(0)
+    }
+
+    pub(crate) fn set_age_deduction(&mut self, key: Characteristic, value: i32) {
+        let max_for_key = self.max_age_deduction_for(key);
+        let snapped = clamp_step_5(value, 0, max_for_key);
+        self.age_deductions.set_char(key, snapped);
+    }
+
+    pub(crate) fn sanitize_age_deductions(&mut self) {
+        let bracket = self.age_bracket();
+        let allowed: HashSet<Characteristic> = bracket.physical_from.iter().copied().collect();
+
+        for def in CHARACTERISTICS {
+            if !allowed.contains(&def.key) || bracket.physical_deduct == 0 {
+                self.age_deductions.set_char(def.key, 0);
+                continue;
+            }
+
+            let max_for_key = max_physical_deduction_for_raw(self.chars.get_char(def.key));
+            let value = self.age_deductions.get_char(def.key);
+            self.age_deductions
+                .set_char(def.key, clamp_step_5(value, 0, max_for_key));
+        }
+
+        let mut excess = (self.physical_deduction_total() - bracket.physical_deduct).max(0);
+        for key in bracket.physical_from.iter().rev() {
+            if excess == 0 {
+                break;
+            }
+            let current = self.age_deductions.get_char(*key);
+            let reduction = current.min(excess);
+            self.age_deductions.set_char(*key, current - reduction);
+            excess -= reduction;
+        }
+    }
+
     pub(crate) fn edu_age_checks_complete(&self) -> bool {
         let bracket = self.age_bracket();
         bracket.edu_checks == 0 || self.edu_check_rolls.len() == bracket.edu_checks
@@ -612,6 +776,7 @@ impl CoC7eApp {
             self.formula_key = FormulaKey::Edu4;
         }
 
+        self.sanitize_age_deductions();
         self.sanitize_allocations();
     }
 
@@ -619,20 +784,60 @@ impl CoC7eApp {
         final_chars.get_char(Characteristic::Int) * 2
     }
 
-    pub(crate) fn used_occupation_points(&self) -> i32 {
-        self.sheet_math()
-            .skill_rows
-            .iter()
-            .map(|row| row.occ_add)
-            .sum()
+    pub(crate) fn used_occupation_points_from(skill_rows: &[SkillRow]) -> i32 {
+        skill_rows.iter().map(|row| row.occ_add).sum()
     }
 
+    #[cfg(test)]
+    pub(crate) fn used_occupation_points(&self) -> i32 {
+        Self::used_occupation_points_from(&self.sheet_math().skill_rows)
+    }
+
+    pub(crate) fn used_personal_points_from(skill_rows: &[SkillRow]) -> i32 {
+        skill_rows.iter().map(|row| row.personal_add).sum()
+    }
+
+    #[cfg(test)]
     pub(crate) fn used_personal_points(&self) -> i32 {
-        self.sheet_math()
-            .skill_rows
-            .iter()
-            .map(|row| row.personal_add)
-            .sum()
+        Self::used_personal_points_from(&self.sheet_math().skill_rows)
+    }
+
+    pub(crate) fn clear_occupation_allocations(&mut self) {
+        self.allocations.occupation_points.clear();
+    }
+
+    pub(crate) fn clear_personal_allocations(&mut self) {
+        self.allocations.personal_points.clear();
+    }
+
+    pub(crate) fn set_occupation_allocation(&mut self, skill: &str, value: i32, max_value: i32) {
+        let selected_occupation = self.selected_occupation();
+        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
+        if selected_occupation.is_some()
+            && skill_accepts_occupation_points(skill, &occupation_skill_set)
+        {
+            set_allocation(
+                &mut self.allocations.occupation_points,
+                skill,
+                value,
+                max_value,
+            );
+        } else {
+            self.allocations.occupation_points.remove(skill);
+        }
+    }
+
+    pub(crate) fn set_personal_allocation(&mut self, skill: &str, value: i32, max_value: i32) {
+        if skill_accepts_personal_points(skill) {
+            set_allocation(
+                &mut self.allocations.personal_points,
+                skill,
+                value,
+                max_value,
+            );
+        } else {
+            self.allocations.personal_points.remove(skill);
+        }
     }
 
     #[cfg(test)]
@@ -662,6 +867,85 @@ impl CoC7eApp {
         get_base_skill("Credit Rating", final_chars) + occupation_add
     }
 
+    pub(crate) fn summary_blockers_for(&self, math: &SheetMath) -> Vec<String> {
+        let mut blockers = Vec::new();
+        let bracket = self.age_bracket();
+        let physical_total = self.physical_deduction_total();
+        let used_occ = Self::used_occupation_points_from(&math.skill_rows);
+        let used_personal = Self::used_personal_points_from(&math.skill_rows);
+        let has_occupation = math.selected_occupation.is_some();
+        let credit = math.credit_rating;
+        let (credit_min, credit_max) = math.credit_range;
+
+        if !self.has_all_chars() {
+            blockers.push("missing characteristics".to_owned());
+        }
+        if physical_total != bracket.physical_deduct {
+            blockers.push(format!(
+                "age deductions {physical_total}/{}",
+                bracket.physical_deduct
+            ));
+        }
+        if !self.edu_age_checks_complete() {
+            blockers.push(format!(
+                "EDU age checks {}/{}",
+                self.edu_check_rolls.len(),
+                bracket.edu_checks
+            ));
+        }
+        if self.char_method == CharMethod::PointBuy && self.point_buy_spent() != POINT_BUY_BUDGET {
+            blockers.push(format!(
+                "point-buy budget {}/{POINT_BUY_BUDGET}",
+                self.point_buy_spent()
+            ));
+        }
+        if self.luck_state.value.is_none() {
+            blockers.push("Luck not rolled".to_owned());
+        }
+        if !has_occupation {
+            blockers.push("occupation missing".to_owned());
+        } else {
+            if math.unresolved_choices > 0 {
+                blockers.push(format!(
+                    "occupation choices unresolved: {}",
+                    math.unresolved_choices
+                ));
+            }
+            if math.occupation_shortfall > 0 {
+                blockers.push(format!(
+                    "occupation skill shortfall: {}",
+                    math.occupation_shortfall
+                ));
+            }
+        }
+        if used_occ != math.occupation_budget {
+            blockers.push(format!(
+                "occupation points {used_occ}/{}",
+                math.occupation_budget
+            ));
+        }
+        if used_personal != math.personal_budget {
+            blockers.push(format!(
+                "personal points {used_personal}/{}",
+                math.personal_budget
+            ));
+        }
+        if has_occupation && (credit < credit_min || credit > credit_max) {
+            blockers.push(format!(
+                "Credit Rating {credit}% outside {credit_min}–{credit_max}"
+            ));
+        }
+        if math
+            .skill_rows
+            .iter()
+            .any(|row| row.total > MAX_CREATION_VALUE)
+        {
+            blockers.push("skill total above 99".to_owned());
+        }
+
+        blockers
+    }
+
     pub(crate) fn apply_characteristic_preset(
         &mut self,
         method: CharMethod,
@@ -679,6 +963,7 @@ impl CoC7eApp {
         self.chars = chars;
         self.char_rolls.clear();
         self.clear_edu_age_checks();
+        self.sanitize_age_deductions();
     }
 
     pub(crate) fn roll_all_characteristics(&mut self) {
@@ -695,6 +980,7 @@ impl CoC7eApp {
         self.chars = chars;
         self.char_rolls = rolls;
         self.clear_edu_age_checks();
+        self.sanitize_age_deductions();
     }
 
     pub(crate) fn roll_single_characteristic(&mut self, key: &str) {
@@ -709,6 +995,7 @@ impl CoC7eApp {
             if key == "EDU" {
                 self.clear_edu_age_checks();
             }
+            self.sanitize_age_deductions();
         }
     }
 

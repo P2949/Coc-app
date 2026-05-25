@@ -57,8 +57,8 @@ impl CoC7eApp {
         let bracket = self.age_bracket();
         let occ_budget = math.occupation_budget;
         let personal_budget = math.personal_budget;
-        let used_occ = self.used_occupation_points();
-        let used_personal = self.used_personal_points();
+        let used_occ = CoC7eApp::used_occupation_points_from(skill_rows);
+        let used_personal = CoC7eApp::used_personal_points_from(skill_rows);
         let credit = math.credit_rating;
         let (credit_min, credit_max) = math.credit_range;
         let has_occupation = math.selected_occupation.is_some();
@@ -66,6 +66,7 @@ impl CoC7eApp {
         let shortfall = math.occupation_shortfall;
         let credit_out = has_occupation && (credit < credit_min || credit > credit_max);
         let skills_over = skill_rows.iter().any(|row| row.total > MAX_CREATION_VALUE);
+        let summary_blockers = self.summary_blockers_for(&math);
 
         card(ui, |ui| {
             ui.label(
@@ -393,8 +394,26 @@ impl CoC7eApp {
         }
 
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Copy plaintext summary").clicked() {
+            let copy_response = ui.add_enabled(
+                summary_blockers.is_empty(),
+                egui::Button::new("Copy plaintext summary"),
+            );
+            if copy_response.clicked() {
                 ui.ctx().copy_text(self.plaintext_summary());
+            }
+            if !summary_blockers.is_empty() {
+                copy_response.on_hover_text(format!(
+                    "Resolve these first: {}",
+                    summary_blockers.join(", ")
+                ));
+                ui.label(
+                    RichText::new(format!(
+                        "Copy is disabled until resolved: {}",
+                        summary_blockers.join(", ")
+                    ))
+                    .small()
+                    .color(AMBER),
+                );
             }
             if ui.button("← Back to concept").clicked() {
                 self.step = 1;
@@ -405,7 +424,7 @@ impl CoC7eApp {
         });
     }
 
-    pub(crate) fn plaintext_summary(&mut self) -> String {
+    pub(crate) fn plaintext_summary(&self) -> String {
         let math = self.sheet_math();
         let final_chars = &math.final_chars;
         let derived = &math.derived;

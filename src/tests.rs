@@ -166,6 +166,70 @@ fn physical_deduction_overassignment_past_minimum_is_not_effective() {
 }
 
 #[test]
+fn set_age_deduction_clamps_against_live_total() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.concept.age = 65;
+    app.sync_age_bracket();
+
+    app.set_age_deduction(Characteristic::Str, 10);
+    app.set_age_deduction(Characteristic::Con, 10);
+    app.set_age_deduction(Characteristic::Dex, 10);
+
+    assert_eq!(app.age_deductions.get_char(Characteristic::Str), 10);
+    assert_eq!(app.age_deductions.get_char(Characteristic::Con), 10);
+    assert_eq!(app.age_deductions.get_char(Characteristic::Dex), 0);
+    assert_eq!(app.physical_deduction_total(), 20);
+}
+
+#[test]
+fn sanitize_state_clamps_imported_age_deductions() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.concept.age = 65;
+    app.sync_age_bracket();
+    app.age_deductions.set_char(Characteristic::Str, 25);
+    app.age_deductions.set_char(Characteristic::Con, 20);
+    app.age_deductions.set_char(Characteristic::Dex, 20);
+    app.age_deductions.set_char(Characteristic::Siz, 20);
+
+    app.sanitize_state();
+
+    assert_eq!(app.age_deductions.get_char(Characteristic::Siz), 0);
+    assert_eq!(app.age_deductions.get_char(Characteristic::Str), 20);
+    assert_eq!(app.age_deductions.get_char(Characteristic::Con), 0);
+    assert_eq!(app.age_deductions.get_char(Characteristic::Dex), 0);
+    assert_eq!(
+        app.physical_deduction_total(),
+        app.age_bracket().physical_deduct
+    );
+}
+
+#[test]
 fn final_chars_apply_young_age_edu_penalty() {
     let mut app = test_app();
     app.apply_characteristic_preset(
@@ -781,6 +845,75 @@ fn prune_occupation_choices_removes_stale_and_invalid_choice_state() {
 }
 
 #[test]
+fn prune_occupation_choices_removes_duplicate_and_fixed_conflicts() {
+    let mut app = test_app();
+    app.set_occupation("Student".to_owned());
+    app.occupation_choices
+        .insert(ChoiceKey::new("student-any", 0), "Library Use".to_owned());
+    app.occupation_choices
+        .insert(ChoiceKey::new("student-any", 1), "Charm".to_owned());
+    app.occupation_choices
+        .insert(ChoiceKey::new("student-any", 2), "Charm".to_owned());
+    app.occupation_choices
+        .insert(ChoiceKey::new("student-any", 3), "Law".to_owned());
+
+    let occupation = app.selected_occupation().expect("student should exist");
+    app.prune_occupation_choices_for(&occupation);
+
+    assert!(
+        !app.occupation_choices
+            .contains_key(&ChoiceKey::new("student-any", 0))
+    );
+    assert_eq!(
+        app.occupation_choices
+            .get(&ChoiceKey::new("student-any", 1)),
+        Some(&"Charm".to_owned())
+    );
+    assert!(
+        !app.occupation_choices
+            .contains_key(&ChoiceKey::new("student-any", 2))
+    );
+    assert_eq!(
+        app.occupation_choices
+            .get(&ChoiceKey::new("student-any", 3)),
+        Some(&"Law".to_owned())
+    );
+    assert_eq!(app.unresolved_choice_count_for(&occupation), 2);
+}
+
+#[test]
+fn set_occupation_choice_rejects_duplicate_and_fixed_conflicts() {
+    let mut app = test_app();
+    app.set_occupation("Student".to_owned());
+    let occupation = app.selected_occupation().expect("student should exist");
+
+    assert!(!app.set_occupation_choice(
+        &occupation,
+        ChoiceKey::new("student-any", 0),
+        "Library Use".to_owned(),
+    ));
+    assert!(
+        !app.occupation_choices
+            .contains_key(&ChoiceKey::new("student-any", 0))
+    );
+
+    assert!(app.set_occupation_choice(
+        &occupation,
+        ChoiceKey::new("student-any", 0),
+        "Charm".to_owned(),
+    ));
+    assert!(!app.set_occupation_choice(
+        &occupation,
+        ChoiceKey::new("student-any", 1),
+        "Charm".to_owned(),
+    ));
+    assert!(
+        !app.occupation_choices
+            .contains_key(&ChoiceKey::new("student-any", 1))
+    );
+}
+
+#[test]
 fn max_reachable_step_does_not_jump_to_skills_without_characteristics() {
     let mut app = test_app();
     app.set_occupation("Soldier".to_owned());
@@ -1303,6 +1436,35 @@ fn occupation_validation_rejects_cross_choice_impossible_unique_picks() {
     )];
 
     validate_occupations(&occupations);
+}
+
+#[test]
+fn summary_blockers_prevent_copying_incomplete_sheet() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+
+    let blockers = app.summary_blockers_for(&app.sheet_math());
+
+    assert!(blockers.iter().any(|blocker| blocker == "Luck not rolled"));
+    assert!(
+        blockers
+            .iter()
+            .any(|blocker| blocker.starts_with("occupation points "))
+    );
 }
 
 #[test]

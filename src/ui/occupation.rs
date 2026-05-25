@@ -77,7 +77,7 @@ impl CoC7eApp {
                                 }
                             });
                         if self.formula_key != next_formula {
-                            self.formula_key = next_formula;
+                            self.set_formula_key(next_formula);
                         }
                     });
                 }
@@ -100,7 +100,7 @@ impl CoC7eApp {
             let (credit_min, credit_max) = math.credit_range;
             let occ_budget = math.occupation_budget;
             let personal_budget = math.personal_budget;
-            let used_occ = self.used_occupation_points();
+            let used_occ = CoC7eApp::used_occupation_points_from(&math.skill_rows);
             let fixed = fixed_skill_set_for(occupation);
 
             card(ui, |ui| {
@@ -239,8 +239,7 @@ impl CoC7eApp {
                                 }
                             });
                         if next != self.custom_occupation.formula_key {
-                            self.custom_occupation.formula_key = next;
-                            self.formula_key = next;
+                            self.set_custom_formula_key(next);
                         }
                     });
                     ui.end_row();
@@ -304,8 +303,7 @@ impl CoC7eApp {
 
                         let normalized = next.trim().to_owned();
                         if normalized != self.custom_occupation.skills[index] {
-                            self.custom_occupation.skills[index] = normalized;
-                            self.prune_occupation_allocations();
+                            self.set_custom_occupation_skill(index, normalized);
                         }
 
                         if index % 2 == 1 {
@@ -372,13 +370,10 @@ impl CoC7eApp {
 
                 let normalized = next.trim().to_owned();
                 if normalized != current {
-                    if normalized.is_empty() {
-                        self.occupation_choices.remove(&key);
-                    } else {
-                        self.occupation_choices.insert(key, normalized);
-                    }
-
-                    self.prune_occupation_allocations();
+                    let occupation = self
+                        .selected_occupation()
+                        .expect("choice slots are only rendered for a selected occupation");
+                    self.set_occupation_choice(&occupation, key, normalized);
                 }
             }
         });

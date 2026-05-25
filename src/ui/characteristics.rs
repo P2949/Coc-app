@@ -208,20 +208,13 @@ impl CoC7eApp {
             if bracket.physical_deduct > 0 {
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
-                    let total_before = self.physical_deduction_total();
                     for key in bracket.physical_from {
                         let current = self.age_deductions.get_char(*key);
-                        let current_effective = self.effective_physical_deduction_for(*key);
-                        let other_effective_total = total_before - current_effective;
-                        let remaining_effective =
-                            (bracket.physical_deduct - other_effective_total).max(0);
-                        let max_effective_for_key =
-                            max_physical_deduction_for_raw(self.chars.get_char(*key));
-                        let max_for_key = remaining_effective.min(max_effective_for_key).max(0);
+                        let max_for_key = self.max_age_deduction_for(*key);
                         let mut value = clamp_step_5(current, 0, max_for_key);
 
                         if value != current {
-                            self.age_deductions.set_char(*key, value);
+                            self.set_age_deduction(*key, value);
                         }
 
                         ui.label(key.key());
@@ -233,8 +226,7 @@ impl CoC7eApp {
                             )
                             .changed()
                         {
-                            let snapped = clamp_step_5(value, 0, max_for_key);
-                            self.age_deductions.set_char(*key, snapped);
+                            self.set_age_deduction(*key, value);
                         }
                     }
                 });
