@@ -22,10 +22,9 @@ impl CoC7eApp {
                         &mut self.concept.name,
                         "Harvey Walters",
                     );
-                    if labeled_i32(ui, "Age 15–89", &mut self.concept.age, 15, 89, 1.0).changed()
-                    {
-                        self.sync_age_bracket();
-                        self.refresh_reachability();
+                    let mut age = self.concept.age;
+                    if labeled_i32(ui, "Age 15–89", &mut age, 15, 89, 1.0).changed() {
+                        self.set_age(age);
                     }
                     ui.end_row();
                     labeled_text(

@@ -67,7 +67,7 @@ Installer packaging is configured through `Packager.toml` and uses `cargo-packag
 Install the packager locally with:
 
 ```bash
-cargo install cargo-packager --locked
+cargo install cargo-packager --version 0.11.2 --locked
 ```
 
 Then build installer packages for the current platform with:

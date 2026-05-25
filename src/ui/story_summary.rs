@@ -163,7 +163,7 @@ impl CoC7eApp {
                     if self.luck_state.value.is_some() {
                         CheckState::Pass
                     } else {
-                        CheckState::Warn
+                        CheckState::Fail
                     },
                     format!(
                         "Luck {}",
@@ -191,12 +191,8 @@ impl CoC7eApp {
                 );
                 rule_check(
                     ui,
-                    if used_occ <= occ_budget {
-                        if used_occ < occ_budget {
-                            CheckState::Warn
-                        } else {
-                            CheckState::Pass
-                        }
+                    if used_occ == occ_budget {
+                        CheckState::Pass
                     } else {
                         CheckState::Fail
                     },
@@ -204,12 +200,8 @@ impl CoC7eApp {
                 );
                 rule_check(
                     ui,
-                    if used_personal <= personal_budget {
-                        if used_personal < personal_budget {
-                            CheckState::Warn
-                        } else {
-                            CheckState::Pass
-                        }
+                    if used_personal == personal_budget {
+                        CheckState::Pass
                     } else {
                         CheckState::Fail
                     },

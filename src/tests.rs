@@ -195,6 +195,37 @@ fn set_age_deduction_clamps_against_live_total() {
 }
 
 #[test]
+fn set_age_clamps_and_resets_age_bracket_state() {
+    let mut app = test_app();
+    app.luck_state.value = Some(50);
+    app.luck_state.rolls.push(DiceResult {
+        rolls: vec![3, 3, 4],
+        plus_six: false,
+        value: 50,
+        kept: None,
+    });
+
+    app.set_age(999);
+
+    assert_eq!(app.concept.age, 89);
+    assert_eq!(app.age_bracket().label, "80–89");
+    assert_eq!(app.luck_state.value, None);
+    assert!(app.luck_state.rolls.is_empty());
+}
+
+#[test]
+fn custom_occupation_credit_setters_clamp_boundary_values() {
+    let mut app = test_app();
+    app.set_custom_occupation_name("  Occult Tinkerer  ".to_owned());
+    app.set_custom_occupation_credit_min(-10);
+    app.set_custom_occupation_credit_max(150);
+
+    assert_eq!(app.custom_occupation.name, "Occult Tinkerer");
+    assert_eq!(app.custom_occupation.credit_min, 0);
+    assert_eq!(app.custom_occupation.credit_max, 99);
+}
+
+#[test]
 fn sanitize_state_clamps_imported_age_deductions() {
     let mut app = test_app();
     app.apply_characteristic_preset(
@@ -734,6 +765,55 @@ fn prune_allocation_sanitizers_rewrite_stale_allowed_values() {
 }
 
 #[test]
+fn allocation_setters_derive_caps_instead_of_trusting_callers() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+
+    app.set_personal_allocation("First Aid", 50);
+    app.set_occupation_allocation("First Aid", 500);
+
+    let math = app.sheet_math();
+    let first_aid = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "First Aid")
+        .expect("First Aid row should exist");
+    assert_eq!(
+        first_aid.base + first_aid.occ_add + first_aid.personal_add,
+        99
+    );
+    assert_eq!(first_aid.occ_add, 19);
+}
+
+#[test]
+fn allocation_setters_remove_ineligible_skills() {
+    let mut app = test_app();
+    app.set_occupation_allocation("First Aid", 99);
+    app.set_personal_allocation("Credit Rating", 99);
+
+    assert!(!app.allocations.occupation_points.contains_key("First Aid"));
+    assert!(
+        !app.allocations
+            .personal_points
+            .contains_key("Credit Rating")
+    );
+}
+
+#[test]
 fn sanitize_state_cleans_imported_boundary_state() {
     let mut app = test_app();
     app.apply_characteristic_preset(
@@ -885,28 +965,16 @@ fn prune_occupation_choices_removes_duplicate_and_fixed_conflicts() {
 fn set_occupation_choice_rejects_duplicate_and_fixed_conflicts() {
     let mut app = test_app();
     app.set_occupation("Student".to_owned());
-    let occupation = app.selected_occupation().expect("student should exist");
-
-    assert!(!app.set_occupation_choice(
-        &occupation,
-        ChoiceKey::new("student-any", 0),
-        "Library Use".to_owned(),
-    ));
+    assert!(
+        !app.set_occupation_choice(ChoiceKey::new("student-any", 0), "Library Use".to_owned(),)
+    );
     assert!(
         !app.occupation_choices
             .contains_key(&ChoiceKey::new("student-any", 0))
     );
 
-    assert!(app.set_occupation_choice(
-        &occupation,
-        ChoiceKey::new("student-any", 0),
-        "Charm".to_owned(),
-    ));
-    assert!(!app.set_occupation_choice(
-        &occupation,
-        ChoiceKey::new("student-any", 1),
-        "Charm".to_owned(),
-    ));
+    assert!(app.set_occupation_choice(ChoiceKey::new("student-any", 0), "Charm".to_owned(),));
+    assert!(!app.set_occupation_choice(ChoiceKey::new("student-any", 1), "Charm".to_owned(),));
     assert!(
         !app.occupation_choices
             .contains_key(&ChoiceKey::new("student-any", 1))

@@ -205,29 +205,20 @@ impl CoC7eApp {
                 .num_columns(2)
                 .spacing([16.0, 10.0])
                 .show(ui, |ui| {
-                    labeled_text(
-                        ui,
-                        "Occupation name",
-                        &mut self.custom_occupation.name,
-                        "Custom Occupation",
-                    );
-                    labeled_i32(
-                        ui,
-                        "Credit min",
-                        &mut self.custom_occupation.credit_min,
-                        0,
-                        99,
-                        1.0,
-                    );
+                    let mut custom_name = self.custom_occupation.name.clone();
+                    labeled_text(ui, "Occupation name", &mut custom_name, "Custom Occupation");
+                    if custom_name != self.custom_occupation.name {
+                        self.set_custom_occupation_name(custom_name);
+                    }
+                    let mut credit_min = self.custom_occupation.credit_min;
+                    if labeled_i32(ui, "Credit min", &mut credit_min, 0, 99, 1.0).changed() {
+                        self.set_custom_occupation_credit_min(credit_min);
+                    }
                     ui.end_row();
-                    labeled_i32(
-                        ui,
-                        "Credit max",
-                        &mut self.custom_occupation.credit_max,
-                        0,
-                        99,
-                        1.0,
-                    );
+                    let mut credit_max = self.custom_occupation.credit_max;
+                    if labeled_i32(ui, "Credit max", &mut credit_max, 0, 99, 1.0).changed() {
+                        self.set_custom_occupation_credit_max(credit_max);
+                    }
                     ui.vertical(|ui| {
                         ui.label(RichText::new("Formula").small().color(MUTED).strong());
                         let mut next = self.custom_occupation.formula_key;
@@ -370,10 +361,7 @@ impl CoC7eApp {
 
                 let normalized = next.trim().to_owned();
                 if normalized != current {
-                    let occupation = self
-                        .selected_occupation()
-                        .expect("choice slots are only rendered for a selected occupation");
-                    self.set_occupation_choice(&occupation, key, normalized);
+                    self.set_occupation_choice(key, normalized);
                 }
             }
         });

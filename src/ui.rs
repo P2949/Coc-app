@@ -116,6 +116,13 @@ impl CoC7eApp {
         }
     }
 
+    pub(crate) fn set_age(&mut self, age: i32) {
+        self.concept.age = age.clamp(15, 89);
+        self.sync_age_bracket();
+        self.sanitize_age_deductions();
+        self.refresh_reachability();
+    }
+
     pub(crate) fn age_bracket(&self) -> AgeBracket {
         AGE_BRACKETS[self.last_age_bracket_index]
     }
@@ -409,6 +416,18 @@ impl CoC7eApp {
         }
     }
 
+    pub(crate) fn set_custom_occupation_name(&mut self, next: String) {
+        self.custom_occupation.name = next.trim().to_owned();
+    }
+
+    pub(crate) fn set_custom_occupation_credit_min(&mut self, next: i32) {
+        self.custom_occupation.credit_min = next.clamp(0, 99);
+    }
+
+    pub(crate) fn set_custom_occupation_credit_max(&mut self, next: i32) {
+        self.custom_occupation.credit_max = next.clamp(0, 99);
+    }
+
     pub(crate) fn set_custom_occupation_skill(&mut self, index: usize, next: String) -> bool {
         self.normalize_custom_occupation_skills();
         if index >= CUSTOM_OCCUPATION_SKILL_COUNT {
@@ -439,12 +458,10 @@ impl CoC7eApp {
         true
     }
 
-    pub(crate) fn set_occupation_choice(
-        &mut self,
-        occupation: &Occupation,
-        key: ChoiceKey,
-        next: String,
-    ) -> bool {
+    pub(crate) fn set_occupation_choice(&mut self, key: ChoiceKey, next: String) -> bool {
+        let Some(occupation) = self.selected_occupation() else {
+            return false;
+        };
         let normalized = next.trim().to_owned();
         if normalized.is_empty() {
             self.occupation_choices.remove(&key);
@@ -453,7 +470,7 @@ impl CoC7eApp {
         }
 
         let Some((_, options)) = self
-            .occupation_choice_slots(occupation)
+            .occupation_choice_slots(&occupation)
             .into_iter()
             .find(|(choice_key, _)| choice_key == &key)
         else {
@@ -463,7 +480,7 @@ impl CoC7eApp {
         if !choice_value_is_valid(options, &normalized) {
             return false;
         }
-        if fixed_skill_set_for(occupation).contains(normalized.as_str()) {
+        if fixed_skill_set_for(&occupation).contains(normalized.as_str()) {
             return false;
         }
         if self
@@ -810,12 +827,39 @@ impl CoC7eApp {
         self.allocations.personal_points.clear();
     }
 
-    pub(crate) fn set_occupation_allocation(&mut self, skill: &str, value: i32, max_value: i32) {
-        let selected_occupation = self.selected_occupation();
-        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
-        if selected_occupation.is_some()
-            && skill_accepts_occupation_points(skill, &occupation_skill_set)
+    fn allocation_row_for<'a>(math: &'a SheetMath, skill: &str) -> Option<&'a SkillRow> {
+        math.skill_rows.iter().find(|row| row.name == skill)
+    }
+
+    pub(crate) fn occupation_allocation_max_for(&self, skill: &str) -> i32 {
+        let math = self.sheet_math();
+        let Some(row) = Self::allocation_row_for(&math, skill) else {
+            return 0;
+        };
+        if math.selected_occupation.is_none()
+            || !skill_accepts_occupation_points(skill, &math.occupation_skill_set)
         {
+            return 0;
+        }
+
+        (MAX_CREATION_VALUE - row.base - row.personal_add).max(0)
+    }
+
+    pub(crate) fn personal_allocation_max_for(&self, skill: &str) -> i32 {
+        let math = self.sheet_math();
+        let Some(row) = Self::allocation_row_for(&math, skill) else {
+            return 0;
+        };
+        if !skill_accepts_personal_points(skill) {
+            return 0;
+        }
+
+        (MAX_CREATION_VALUE - row.base - row.occ_add).max(0)
+    }
+
+    pub(crate) fn set_occupation_allocation(&mut self, skill: &str, value: i32) {
+        let max_value = self.occupation_allocation_max_for(skill);
+        if max_value > 0 {
             set_allocation(
                 &mut self.allocations.occupation_points,
                 skill,
@@ -827,8 +871,9 @@ impl CoC7eApp {
         }
     }
 
-    pub(crate) fn set_personal_allocation(&mut self, skill: &str, value: i32, max_value: i32) {
-        if skill_accepts_personal_points(skill) {
+    pub(crate) fn set_personal_allocation(&mut self, skill: &str, value: i32) {
+        let max_value = self.personal_allocation_max_for(skill);
+        if max_value > 0 {
             set_allocation(
                 &mut self.allocations.personal_points,
                 skill,

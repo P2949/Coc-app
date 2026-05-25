@@ -171,9 +171,11 @@ jobs:
 
       - name: Install cargo-packager
         shell: bash
+        env:
+          CARGO_PACKAGER_VERSION: "0.11.2"
         run: |
           set -euo pipefail
-          cargo install cargo-packager --locked
+          cargo install cargo-packager --version "${CARGO_PACKAGER_VERSION}" --locked
           cargo packager --version
 
       - name: Verify packager config is present
