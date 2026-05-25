@@ -14,6 +14,10 @@ impl CoC7eApp {
             "Choose an occupation, resolve choice slots, or define a Keeper-approved custom occupation with eight unique occupation skills.",
         );
 
+        if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            self.normalize_custom_occupation_skills();
+        }
+
         card(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.vertical(|ui| {
@@ -184,6 +188,8 @@ impl CoC7eApp {
     }
 
     pub(crate) fn render_custom_occupation(&mut self, ui: &mut egui::Ui) {
+        self.normalize_custom_occupation_skills();
+
         card(ui, |ui| {
             ui.label(
                 RichText::new("Custom occupation builder")
@@ -252,6 +258,7 @@ impl CoC7eApp {
                 .custom_occupation
                 .skills
                 .iter()
+                .take(CUSTOM_OCCUPATION_SKILL_COUNT)
                 .map(|skill| skill.trim())
                 .filter(|skill| !skill.is_empty())
                 .map(str::to_owned)
@@ -261,7 +268,7 @@ impl CoC7eApp {
                 .num_columns(2)
                 .spacing([10.0, 8.0])
                 .show(ui, |ui| {
-                    for index in 0..self.custom_occupation.skills.len() {
+                    for index in 0..CUSTOM_OCCUPATION_SKILL_COUNT {
                         let current_trimmed =
                             self.custom_occupation.skills[index].trim().to_owned();
                         let mut next = current_trimmed.clone();

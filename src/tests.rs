@@ -466,6 +466,92 @@ fn personal_allocation_math_ignores_reserved_skills_before_pruning() {
 }
 
 #[test]
+fn occupation_allocation_math_ignores_disallowed_skills_before_pruning() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+    app.allocations
+        .occupation_points
+        .insert("First Aid".to_owned(), 10);
+    app.allocations
+        .occupation_points
+        .insert("Credit Rating".to_owned(), 5);
+    app.allocations
+        .occupation_points
+        .insert("Library Use".to_owned(), 50);
+
+    let math = app.sheet_math();
+    let first_aid = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "First Aid")
+        .expect("First Aid row should exist");
+    let library_use = math
+        .skill_rows
+        .iter()
+        .find(|row| row.name == "Library Use")
+        .expect("Library Use row should exist");
+
+    assert_eq!(app.used_occupation_points(), 15);
+    assert_eq!(first_aid.occ_add, 10);
+    assert_eq!(library_use.occ_add, 0);
+}
+
+#[test]
+fn credit_rating_ignores_stale_occupation_points_without_occupation() {
+    let mut app = test_app();
+    app.allocations
+        .occupation_points
+        .insert("Credit Rating".to_owned(), 50);
+
+    assert!(app.occupation_skill_set().is_empty());
+    assert_eq!(app.used_occupation_points(), 0);
+    assert_eq!(app.credit_rating(), 0);
+}
+
+#[test]
+fn occupation_budget_uses_selected_occupation_formula_when_state_drifts() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Soldier".to_owned());
+    app.formula_key = FormulaKey::Edu4;
+
+    let final_chars = app.final_chars();
+
+    let selected = app.selected_occupation();
+    let active_formula_key = app.active_formula_key_for(selected.as_ref());
+
+    assert_eq!(active_formula_key, FormulaKey::Edu2Dex2);
+    assert_eq!(active_formula_key.calculate(&final_chars), 260);
+    assert_eq!(app.sheet_math().occupation_budget, 260);
+}
+
+#[test]
 fn max_reachable_step_does_not_jump_to_skills_without_characteristics() {
     let mut app = test_app();
     app.set_occupation("Soldier".to_owned());
@@ -660,6 +746,44 @@ fn custom_occupation_discards_unknown_and_reserved_skills() {
 }
 
 #[test]
+fn custom_occupation_skill_slots_normalize_to_required_count() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+
+    app.custom_occupation.skills = vec!["Library Use".to_owned()];
+    app.normalize_custom_occupation_skills();
+    assert_eq!(
+        app.custom_occupation.skills.len(),
+        CUSTOM_OCCUPATION_SKILL_COUNT
+    );
+    assert_eq!(app.custom_occupation.skills[0], "Library Use");
+    assert!(
+        app.custom_occupation.skills[1..]
+            .iter()
+            .all(String::is_empty)
+    );
+
+    app.custom_occupation.skills = vec![
+        "Library Use".to_owned(),
+        "Spot Hidden".to_owned(),
+        "Listen".to_owned(),
+        "Stealth".to_owned(),
+        "Persuade".to_owned(),
+        "Charm".to_owned(),
+        "Fast Talk".to_owned(),
+        "Intimidate".to_owned(),
+        "Law".to_owned(),
+    ];
+    app.normalize_custom_occupation_skills();
+
+    assert_eq!(
+        app.custom_occupation.skills.len(),
+        CUSTOM_OCCUPATION_SKILL_COUNT
+    );
+    assert!(!app.custom_occupation.skills.contains(&"Law".to_owned()));
+}
+
+#[test]
 fn custom_occupation_required_skill_count_does_not_follow_vector_length() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
@@ -764,12 +888,23 @@ fn unique_strings_trims_and_deduplicates() {
 #[test]
 fn skill_name_constants_match_skill_specs() {
     let spec_names: HashSet<&str> = SKILL_SPECS.iter().map(|skill| skill.name).collect();
+    let spec_ids: HashSet<Skill> = SKILL_SPECS.iter().map(|skill| skill.id).collect();
     let all_names: HashSet<&str> = ALL_SKILL_NAMES.iter().copied().collect();
 
     assert_eq!(
         ALL_SKILL_NAMES.len(),
         all_names.len(),
         "ALL_SKILL_NAMES contains duplicates"
+    );
+    assert_eq!(
+        SKILL_SPECS.len(),
+        spec_names.len(),
+        "SKILL_SPECS contains duplicate skill names"
+    );
+    assert_eq!(
+        SKILL_SPECS.len(),
+        spec_ids.len(),
+        "SKILL_SPECS contains duplicate skill ids"
     );
     assert_eq!(all_names, spec_names);
 
@@ -936,6 +1071,45 @@ fn occupation_validation_rejects_cross_choice_impossible_unique_picks() {
             choice("bad-b", "Bad B", vec!["Climb".to_owned()], 1),
         ],
     )];
+
+    validate_occupations(&occupations);
+}
+
+#[test]
+#[should_panic(expected = "duplicate occupation name")]
+fn occupation_validation_rejects_duplicate_names() {
+    let occupations = vec![
+        occupation(
+            "Duplicate Occupation",
+            (0, 10),
+            vec![FormulaKey::Edu4],
+            vec![
+                fixed("Accounting"),
+                fixed("Anthropology"),
+                fixed("Appraise"),
+                fixed("Archaeology"),
+                fixed("Art/Craft"),
+                fixed("Charm"),
+                fixed("Climb"),
+                fixed("Disguise"),
+            ],
+        ),
+        occupation(
+            "Duplicate Occupation",
+            (0, 10),
+            vec![FormulaKey::Edu4],
+            vec![
+                fixed("Accounting"),
+                fixed("Anthropology"),
+                fixed("Appraise"),
+                fixed("Archaeology"),
+                fixed("Art/Craft"),
+                fixed("Charm"),
+                fixed("Climb"),
+                fixed("Disguise"),
+            ],
+        ),
+    ];
 
     validate_occupations(&occupations);
 }

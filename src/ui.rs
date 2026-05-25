@@ -46,6 +46,10 @@ fn skill_accepts_personal_points(skill: &str) -> bool {
     skill != "Credit Rating" && skill != "Cthulhu Mythos"
 }
 
+fn skill_accepts_occupation_points(skill: &str, allowed: &HashSet<String>) -> bool {
+    allowed.contains(skill)
+}
+
 impl CoC7eApp {
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_dark_theme(&cc.egui_ctx);
@@ -257,6 +261,15 @@ impl CoC7eApp {
         }
     }
 
+    pub(crate) fn normalize_custom_occupation_skills(&mut self) {
+        self.custom_occupation
+            .skills
+            .resize(CUSTOM_OCCUPATION_SKILL_COUNT, String::new());
+        self.custom_occupation
+            .skills
+            .truncate(CUSTOM_OCCUPATION_SKILL_COUNT);
+    }
+
     pub(crate) fn build_custom_occupation(&self) -> Occupation {
         let min = self.custom_occupation.credit_min.clamp(0, 99);
         let max = self.custom_occupation.credit_max.clamp(0, 99);
@@ -391,16 +404,24 @@ impl CoC7eApp {
             .saturating_sub(self.resolved_occupation_skills_for(occupation).len())
     }
 
-    pub(crate) fn skill_rows_for(&self, final_chars: &CharacteristicValues) -> Vec<SkillRow> {
+    pub(crate) fn skill_rows_for(
+        &self,
+        final_chars: &CharacteristicValues,
+        occupation_skill_set: &HashSet<String>,
+    ) -> Vec<SkillRow> {
         SKILL_SPECS
             .iter()
             .map(|skill| {
                 let base = get_base_skill(skill.name, final_chars);
-                let occ_add = *self
-                    .allocations
-                    .occupation_points
-                    .get(skill.name)
-                    .unwrap_or(&0);
+                let occ_add = if skill_accepts_occupation_points(skill.name, occupation_skill_set) {
+                    *self
+                        .allocations
+                        .occupation_points
+                        .get(skill.name)
+                        .unwrap_or(&0)
+                } else {
+                    0
+                };
                 let personal_add = if skill_accepts_personal_points(skill.name) {
                     *self
                         .allocations
@@ -439,9 +460,10 @@ impl CoC7eApp {
     }
 
     pub(crate) fn sheet_math_from(&self, final_chars: CharacteristicValues) -> SheetMath {
-        let skill_rows = self.skill_rows_for(&final_chars);
-        let derived = self.derived_for(&final_chars, &skill_rows);
         let selected_occupation = self.selected_occupation();
+        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
+        let skill_rows = self.skill_rows_for(&final_chars, &occupation_skill_set);
+        let derived = self.derived_for(&final_chars, &skill_rows);
         let credit_range = selected_occupation
             .as_ref()
             .map_or((0, 99), |occupation| occupation.credit);
@@ -451,10 +473,11 @@ impl CoC7eApp {
         let occupation_shortfall = selected_occupation.as_ref().map_or(0, |occupation| {
             self.unique_occupation_shortfall_for(occupation)
         });
-        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
-        let occupation_budget = self.occupation_budget_for(&final_chars);
+        let occupation_budget = self
+            .active_formula_key_for(selected_occupation.as_ref())
+            .calculate(&final_chars);
         let personal_budget = self.personal_budget_for(&final_chars);
-        let credit_rating = self.credit_rating_for(&final_chars);
+        let credit_rating = self.credit_rating_for_with_skills(&final_chars, &occupation_skill_set);
 
         SheetMath {
             final_chars,
@@ -511,8 +534,18 @@ impl CoC7eApp {
         bracket.edu_checks == 0 || self.edu_check_rolls.len() == bracket.edu_checks
     }
 
-    pub(crate) fn occupation_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
-        self.formula_key.calculate(final_chars)
+    pub(crate) fn active_formula_key_for(&self, occupation: Option<&Occupation>) -> FormulaKey {
+        match occupation {
+            Some(occupation) if occupation.formula_keys.contains(&self.formula_key) => {
+                self.formula_key
+            }
+            Some(occupation) => occupation
+                .formula_keys
+                .first()
+                .copied()
+                .unwrap_or(FormulaKey::Edu4),
+            None => FormulaKey::Edu4,
+        }
     }
 
     pub(crate) fn personal_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
@@ -520,7 +553,13 @@ impl CoC7eApp {
     }
 
     pub(crate) fn used_occupation_points(&self) -> i32 {
-        self.allocations.occupation_points.values().sum()
+        let allowed = self.occupation_skill_set();
+        self.allocations
+            .occupation_points
+            .iter()
+            .filter(|(skill, _)| skill_accepts_occupation_points(skill.as_str(), &allowed))
+            .map(|(_, value)| *value)
+            .sum()
     }
 
     pub(crate) fn used_personal_points(&self) -> i32 {
@@ -534,16 +573,28 @@ impl CoC7eApp {
 
     #[cfg(test)]
     pub(crate) fn credit_rating(&self) -> i32 {
-        self.credit_rating_for(&self.final_chars())
+        let final_chars = self.final_chars();
+        let occupation_skill_set = self.occupation_skill_set();
+        self.credit_rating_for_with_skills(&final_chars, &occupation_skill_set)
     }
 
-    pub(crate) fn credit_rating_for(&self, final_chars: &CharacteristicValues) -> i32 {
-        get_base_skill("Credit Rating", final_chars)
-            + *self
-                .allocations
-                .occupation_points
-                .get("Credit Rating")
-                .unwrap_or(&0)
+    pub(crate) fn credit_rating_for_with_skills(
+        &self,
+        final_chars: &CharacteristicValues,
+        occupation_skill_set: &HashSet<String>,
+    ) -> i32 {
+        let occupation_add =
+            if skill_accepts_occupation_points("Credit Rating", occupation_skill_set) {
+                *self
+                    .allocations
+                    .occupation_points
+                    .get("Credit Rating")
+                    .unwrap_or(&0)
+            } else {
+                0
+            };
+
+        get_base_skill("Credit Rating", final_chars) + occupation_add
     }
 
     pub(crate) fn apply_characteristic_preset(

@@ -389,6 +389,19 @@ pub(crate) fn validate_skill_constants() {
     );
 
     assert_eq!(
+        SKILL_SPECS.len(),
+        spec_names.len(),
+        "SKILL_SPECS contains duplicate skill names"
+    );
+
+    let spec_ids: HashSet<Skill> = SKILL_SPECS.iter().map(|skill| skill.id).collect();
+    assert_eq!(
+        SKILL_SPECS.len(),
+        spec_ids.len(),
+        "SKILL_SPECS contains duplicate skill ids"
+    );
+
+    assert_eq!(
         all_names, spec_names,
         "ALL_SKILL_NAMES must match SKILL_SPECS exactly"
     );

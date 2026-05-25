@@ -319,11 +319,17 @@ pub(crate) fn choice_value_is_valid(options: &[String], value: &str) -> bool {
 
 pub(crate) fn validate_occupations(occupations: &[Occupation]) {
     let known: HashSet<&str> = SKILL_SPECS.iter().map(|skill| skill.name).collect();
+    let mut occupation_names = HashSet::new();
 
     for occupation in occupations {
         assert!(
             !occupation.name.trim().is_empty(),
             "occupation with empty name"
+        );
+        assert!(
+            occupation_names.insert(occupation.name.as_str()),
+            "duplicate occupation name `{}`",
+            occupation.name
         );
         assert!(
             !occupation.formula_keys.is_empty(),
