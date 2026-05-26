@@ -1359,6 +1359,42 @@ fn custom_occupation_skill_slots_normalize_to_required_count() {
 }
 
 #[test]
+fn sanitize_custom_occupation_cleans_raw_imported_state() {
+    let mut app = test_app();
+    app.custom_occupation.credit_min = -999;
+    app.custom_occupation.credit_max = 999;
+    app.custom_occupation.skills = vec![
+        " Library Use ".to_owned(),
+        "Bogus Skill".to_owned(),
+        "Credit Rating".to_owned(),
+        "Library Use".to_owned(),
+        String::new(),
+        "Spot Hidden".to_owned(),
+        " Cthulhu Mythos ".to_owned(),
+        "Listen".to_owned(),
+        "Law".to_owned(),
+    ];
+
+    app.sanitize_custom_occupation();
+
+    assert_eq!(app.custom_occupation.credit_min, 0);
+    assert_eq!(app.custom_occupation.credit_max, 99);
+    assert_eq!(
+        app.custom_occupation.skills,
+        vec![
+            "Library Use".to_owned(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "Spot Hidden".to_owned(),
+            String::new(),
+            "Listen".to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn custom_occupation_required_skill_count_does_not_follow_vector_length() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
@@ -2136,6 +2172,69 @@ fn json_import_drops_matching_value_rolls_with_invalid_dice_evidence() {
 
     assert_eq!(loaded.chars.get_char(Characteristic::Str), 50);
     assert!(!loaded.char_rolls.contains_key("STR"));
+}
+
+#[test]
+fn json_import_sanitizes_custom_occupation_raw_state_before_resaving() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.occupation_id = CUSTOM_OCCUPATION_ID.to_owned();
+    save.custom_occupation.credit_min = -20;
+    save.custom_occupation.credit_max = 140;
+    save.custom_occupation.skills = vec![
+        " Library Use ".to_owned(),
+        "Credit Rating".to_owned(),
+        "Bogus Skill".to_owned(),
+        "Spot Hidden".to_owned(),
+        "Library Use".to_owned(),
+        "Listen".to_owned(),
+        "Cthulhu Mythos".to_owned(),
+        "Stealth".to_owned(),
+        "Persuade".to_owned(),
+    ];
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(loaded.custom_occupation.credit_min, 0);
+    assert_eq!(loaded.custom_occupation.credit_max, 99);
+    assert_eq!(
+        loaded.custom_occupation.skills,
+        vec![
+            "Library Use".to_owned(),
+            String::new(),
+            String::new(),
+            "Spot Hidden".to_owned(),
+            String::new(),
+            "Listen".to_owned(),
+            String::new(),
+            "Stealth".to_owned(),
+        ]
+    );
+
+    let exported = loaded.save_file();
+    assert_eq!(exported.custom_occupation.credit_min, 0);
+    assert_eq!(exported.custom_occupation.credit_max, 99);
+    assert_eq!(
+        exported.custom_occupation.skills,
+        loaded.custom_occupation.skills
+    );
+
+    let occupation = loaded
+        .selected_occupation()
+        .expect("custom occupation should remain selected");
+    assert_eq!(
+        loaded.resolved_occupation_skills_for(&occupation),
+        vec![
+            "Library Use".to_owned(),
+            "Spot Hidden".to_owned(),
+            "Listen".to_owned(),
+            "Stealth".to_owned(),
+        ]
+    );
 }
 
 #[test]

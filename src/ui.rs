@@ -423,6 +423,25 @@ impl CoC7eApp {
             .truncate(CUSTOM_OCCUPATION_SKILL_COUNT);
     }
 
+    pub(crate) fn sanitize_custom_occupation(&mut self) {
+        self.custom_occupation.credit_min = self.custom_occupation.credit_min.clamp(0, 99);
+        self.custom_occupation.credit_max = self.custom_occupation.credit_max.clamp(0, 99);
+        self.normalize_custom_occupation_skills();
+
+        let mut seen = HashSet::new();
+        for skill in &mut self.custom_occupation.skills {
+            let normalized = skill.trim().to_owned();
+            if normalized.is_empty()
+                || !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str())
+                || !seen.insert(normalized.clone())
+            {
+                skill.clear();
+            } else {
+                *skill = normalized;
+            }
+        }
+    }
+
     fn occupation_choice_slots<'a>(
         &self,
         occupation: &'a Occupation,
@@ -1036,7 +1055,7 @@ impl CoC7eApp {
     }
 
     pub(crate) fn sanitize_state(&mut self) {
-        self.normalize_custom_occupation_skills();
+        self.sanitize_custom_occupation();
         let selected_occupation = self.selected_occupation();
 
         if let Some(occupation) = selected_occupation.as_ref() {

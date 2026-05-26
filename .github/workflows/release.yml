@@ -243,6 +243,24 @@ jobs:
           set -euo pipefail
           cargo packager --config Packager.ci.toml --release
 
+      - name: Archive macOS app bundles
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find dist/installers -type d -name '*.app' -prune -print0 |
+            while IFS= read -r -d '' app; do
+              archive="${app}.tar.gz"
+              if [[ -e "$archive" ]]; then
+                echo "Refusing to overwrite existing archive: $archive" >&2
+                exit 1
+              fi
+
+              tar -C "$(dirname "$app")" -czf "$archive" "$(basename "$app")"
+              rm -rf "$app"
+            done
+
       - name: Show installer artifacts
         shell: bash
         run: find dist/installers -maxdepth 5 -type f -print
