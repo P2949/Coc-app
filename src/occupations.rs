@@ -314,7 +314,7 @@ pub(crate) fn choice_pools_have_full_matching(pools: &[Vec<&str>]) -> bool {
 
 pub(crate) fn choice_value_is_valid(options: &[String], value: &str) -> bool {
     let value = value.trim();
-    !value.is_empty() && options.iter().any(|option| option == value)
+    !value.is_empty() && options.iter().any(|option| option.trim() == value)
 }
 
 pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<String> {
@@ -423,13 +423,20 @@ pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<St
                     options,
                     count,
                 } => {
-                    if id.trim().is_empty() {
+                    let normalized_id = id.trim();
+                    if normalized_id.is_empty() {
                         errors.push(format!(
                             "occupation `{}` has a choice with an empty id",
                             occupation.name
                         ));
                     }
-                    if !choice_ids.insert(id.as_str()) {
+                    if normalized_id != id.as_str() {
+                        errors.push(format!(
+                            "choice id `{id}` in occupation `{}` has outer whitespace",
+                            occupation.name
+                        ));
+                    }
+                    if !choice_ids.insert(normalized_id) {
                         errors.push(format!(
                             "duplicate choice id `{id}` in occupation `{}`",
                             occupation.name
@@ -456,25 +463,38 @@ pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<St
 
                     let mut seen = HashSet::new();
                     for option in options {
-                        if !known.contains(option.as_str()) {
+                        let normalized_option = option.trim();
+                        if normalized_option.is_empty() {
+                            errors.push(format!(
+                                "choice `{id}` in occupation `{}` has an empty option",
+                                occupation.name
+                            ));
+                        }
+                        if normalized_option != option.as_str() {
+                            errors.push(format!(
+                                "option `{option}` in choice `{id}` for occupation `{}` has outer whitespace",
+                                occupation.name
+                            ));
+                        }
+                        if !known.contains(normalized_option) {
                             errors.push(format!(
                                 "unknown choice skill `{option}` in occupation `{}`",
                                 occupation.name
                             ));
                         }
-                        if option.as_str() == "Credit Rating" {
+                        if normalized_option == "Credit Rating" {
                             errors.push(format!(
                                 "choice `{id}` in occupation `{}` should not include Credit Rating",
                                 occupation.name
                             ));
                         }
-                        if option.as_str() == "Cthulhu Mythos" {
+                        if normalized_option == "Cthulhu Mythos" {
                             errors.push(format!(
                                 "choice `{id}` in occupation `{}` should not include Cthulhu Mythos",
                                 occupation.name
                             ));
                         }
-                        if !seen.insert(option.as_str()) {
+                        if !seen.insert(normalized_option) {
                             errors.push(format!(
                                 "duplicate option `{option}` in choice `{id}` for occupation `{}`",
                                 occupation.name
@@ -484,8 +504,8 @@ pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<St
 
                     let usable_options: Vec<&str> = options
                         .iter()
-                        .map(|option| option.as_str())
-                        .filter(|option| !fixed_names_all.contains(*option))
+                        .map(|option| option.trim())
+                        .filter(|option| !option.is_empty() && !fixed_names_all.contains(*option))
                         .collect();
                     if usable_options.len() < *count {
                         errors.push(format!(

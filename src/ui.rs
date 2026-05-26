@@ -62,6 +62,25 @@ fn sanitized_allocation_value(
         .clamp(0, max_value.clamp(0, MAX_CREATION_VALUE))
 }
 
+fn dice_result_matches_kind(result: &DiceResult, kind: DiceKind) -> bool {
+    if !result.rolls.iter().all(|roll| (1..=6).contains(roll)) {
+        return false;
+    }
+
+    match kind {
+        DiceKind::ThreeD6 => {
+            result.rolls.len() == 3
+                && !result.plus_six
+                && result.value == result.rolls.iter().sum::<u32>() as i32 * 5
+        }
+        DiceKind::TwoD6Plus6 => {
+            result.rolls.len() == 2
+                && result.plus_six
+                && result.value == (result.rolls.iter().sum::<u32>() as i32 + 6) * 5
+        }
+    }
+}
+
 impl CoC7eApp {
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_dark_theme(&cc.egui_ctx);
@@ -213,9 +232,6 @@ impl CoC7eApp {
             })
             .collect();
 
-        let bracket = self.age_bracket();
-        self.edu_check_rolls.truncate(bracket.edu_checks);
-        self.luck_state.value = self.luck_state.value.map(|value| value.clamp(1, 99));
         self.sanitize_state();
         self.refresh_reachability();
         Ok(())
@@ -858,13 +874,96 @@ impl CoC7eApp {
 
         let chars = self.chars.clone();
         self.char_rolls.retain(|key, roll| {
-            Characteristic::from_key(key)
-                .map(|characteristic| {
-                    let value = chars.get_char(characteristic);
-                    value > 0 && value == roll.value
-                })
-                .unwrap_or(false)
+            let Some(def) = CHARACTERISTICS
+                .iter()
+                .find(|def| def.key.key() == key.as_str())
+            else {
+                return false;
+            };
+            let value = chars.get_char(def.key);
+            value > 0
+                && value == roll.value
+                && roll.kept.is_none()
+                && dice_result_matches_kind(roll, def.dice)
         });
+    }
+
+    pub(crate) fn sanitize_luck_state(&mut self) {
+        let expected_attempts = if self.age_bracket().luck_advantage {
+            2
+        } else {
+            1
+        };
+
+        let mut attempts: Vec<DiceResult> = self
+            .luck_state
+            .rolls
+            .iter()
+            .take(expected_attempts)
+            .filter(|roll| dice_result_matches_kind(roll, DiceKind::ThreeD6))
+            .cloned()
+            .collect();
+
+        if attempts.len() != expected_attempts {
+            self.luck_state = LuckState::default();
+            return;
+        }
+
+        let best_index = attempts
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, roll)| roll.value)
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+
+        for (index, roll) in attempts.iter_mut().enumerate() {
+            roll.kept = Some(index == best_index);
+        }
+
+        self.luck_state.value = attempts.get(best_index).map(|roll| roll.value);
+        self.luck_state.rolls = attempts;
+    }
+
+    pub(crate) fn sanitize_edu_age_checks(&mut self) {
+        let bracket = self.age_bracket();
+        self.edu_check_rolls.truncate(bracket.edu_checks);
+
+        if bracket.edu_checks == 0 || self.chars.get_char(Characteristic::Edu) <= 0 {
+            self.edu_bonus = 0;
+            self.edu_check_rolls.clear();
+            return;
+        }
+
+        let starting_edu = (self.chars.get_char(Characteristic::Edu) - bracket.edu_penalty)
+            .clamp(1, MAX_CREATION_VALUE);
+        let mut current_edu = starting_edu;
+        let mut sanitized = Vec::new();
+
+        for roll in &self.edu_check_rolls {
+            let d100 = roll.d100.clamp(1, 100);
+            let improved = d100 > current_edu;
+            let gain = if improved { roll.gain.clamp(1, 10) } else { 0 };
+            current_edu = (current_edu + gain).clamp(1, MAX_CREATION_VALUE);
+
+            sanitized.push(EduCheckRoll {
+                d100,
+                improved,
+                gain,
+                resulting_edu: current_edu,
+            });
+        }
+
+        self.edu_bonus = (current_edu - starting_edu).max(0);
+        self.edu_check_rolls = sanitized;
+    }
+
+    pub(crate) fn physical_deduction_source_label(&self) -> String {
+        self.age_bracket()
+            .physical_from
+            .iter()
+            .map(|key| key.key())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     pub(crate) fn sanitize_age_deductions(&mut self) {
@@ -949,6 +1048,8 @@ impl CoC7eApp {
         }
 
         self.sanitize_characteristics();
+        self.sanitize_luck_state();
+        self.sanitize_edu_age_checks();
         self.sanitize_age_deductions();
         self.sanitize_allocations();
     }
@@ -1089,8 +1190,9 @@ impl CoC7eApp {
                 ));
             } else {
                 blockers.push(format!(
-                    "age deductions impossible: requires {}, current STR/CON/DEX can absorb only {}",
+                    "age deductions impossible: requires {}, current {} can absorb only {}",
                     bracket.physical_deduct,
+                    self.physical_deduction_source_label(),
                     self.max_possible_physical_deduction()
                 ));
             }
@@ -1397,7 +1499,7 @@ impl CoC7eApp {
         // Step 5, Backstory, is intentionally optional.
         // Step 6 usually unlocks once required physical age deductions and EDU
         // checks are resolved. If the age deduction cannot be satisfied with the
-        // current STR/CON/DEX values, Summary still unlocks so the blocker can
+        // current physical source values, Summary still unlocks so the blocker can
         // explain the impossible state instead of leaving the user at a dead end.
         // Remaining allocation, credit, Luck, and skill-cap issues are surfaced
         // as rule checks on the Summary page.

@@ -250,8 +250,10 @@ impl CoC7eApp {
                 if !possible {
                     ui.label(
                         RichText::new(format!(
-                            "This age bracket requires {} physical deduction points, but current STR/CON/DEX can absorb only {max_possible}. Increase STR/CON/DEX or choose a lower age.",
+                            "This age bracket requires {} physical deduction points, but current {} can absorb only {max_possible}. Increase {} or choose a lower age.",
                             bracket.physical_deduct,
+                            self.physical_deduction_source_label(),
+                            self.physical_deduction_source_label(),
                         ))
                         .small()
                         .color(RED),

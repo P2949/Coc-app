@@ -199,6 +199,27 @@ fn impossible_physical_deduction_reports_capacity_and_unlocks_summary_explanatio
 }
 
 #[test]
+fn young_age_physical_deduction_message_names_str_and_siz() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 15),
+            ("CON", 50),
+            ("SIZ", 40),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_age(17);
+
+    assert_eq!(app.physical_deduction_source_label(), "STR/SIZ");
+}
+
+#[test]
 fn set_age_deduction_clamps_against_live_total() {
     let mut app = test_app();
     app.apply_characteristic_preset(
@@ -1811,6 +1832,85 @@ fn occupation_validation_rejects_names_that_only_differ_by_outer_whitespace() {
 }
 
 #[test]
+fn occupation_validation_rejects_choice_ids_that_only_differ_by_outer_whitespace() {
+    let occupations = vec![occupation(
+        "Whitespace Choice Id",
+        (0, 10),
+        vec![FormulaKey::Edu4],
+        vec![
+            fixed("Accounting"),
+            fixed("Anthropology"),
+            fixed("Appraise"),
+            fixed("Archaeology"),
+            fixed("Art/Craft"),
+            fixed("Charm"),
+            choice(
+                "duplicate-choice",
+                "First choice",
+                vec!["Climb".to_owned(), "Disguise".to_owned()],
+                1,
+            ),
+            choice(
+                " duplicate-choice ",
+                "Second choice",
+                vec!["Dodge".to_owned(), "Drive Auto".to_owned()],
+                1,
+            ),
+        ],
+    )];
+
+    let errors = occupation_validation_errors(&occupations);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("choice id") && error.contains("outer whitespace"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("duplicate choice id"))
+    );
+}
+
+#[test]
+fn occupation_validation_rejects_choice_options_with_outer_whitespace() {
+    let occupations = vec![occupation(
+        "Whitespace Choice Option",
+        (0, 10),
+        vec![FormulaKey::Edu4],
+        vec![
+            fixed("Accounting"),
+            fixed("Anthropology"),
+            fixed("Appraise"),
+            fixed("Archaeology"),
+            fixed("Art/Craft"),
+            fixed("Climb"),
+            fixed("Disguise"),
+            choice(
+                "option-whitespace",
+                "Option whitespace",
+                vec!["Charm".to_owned(), " Charm ".to_owned()],
+                1,
+            ),
+        ],
+    )];
+
+    let errors = occupation_validation_errors(&occupations);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("option") && error.contains("outer whitespace"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("duplicate option"))
+    );
+}
+
+#[test]
 fn json_save_round_trips_editable_investigator_state() {
     let mut app = test_app();
     app.concept.name = "Ida Know".to_owned();
@@ -1838,6 +1938,12 @@ fn json_save_round_trips_editable_investigator_state() {
     app.set_occupation_allocation("First Aid", 20);
     app.set_personal_allocation("Accounting", 15);
     app.luck_state.value = Some(55);
+    app.luck_state.rolls = vec![DiceResult {
+        rolls: vec![3, 4, 4],
+        plus_six: false,
+        value: 55,
+        kept: Some(true),
+    }];
     app.backstory
         .insert("Traits".to_owned(), "Writes everything down.".to_owned());
 
@@ -1915,6 +2021,121 @@ fn json_import_sanitizes_characteristics_and_stale_rolls() {
     assert_eq!(loaded.chars.get_char(Characteristic::Siz), 0);
     assert_eq!(loaded.chars.get_char(Characteristic::Dex), 50);
     assert!(loaded.char_rolls.is_empty());
+}
+
+#[test]
+fn json_import_recomputes_edu_bonus_from_imported_rolls() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.concept.age = 40;
+    save.chars.set_char(Characteristic::Edu, 40);
+    save.edu_bonus = 99;
+    save.edu_check_rolls = vec![
+        EduCheckRoll {
+            d100: 100,
+            improved: false,
+            gain: 7,
+            resulting_edu: 99,
+        },
+        EduCheckRoll {
+            d100: -50,
+            improved: true,
+            gain: 9,
+            resulting_edu: 99,
+        },
+    ];
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(loaded.edu_bonus, 7);
+    assert_eq!(loaded.edu_check_rolls.len(), 2);
+    assert_eq!(loaded.edu_check_rolls[0].d100, 100);
+    assert!(loaded.edu_check_rolls[0].improved);
+    assert_eq!(loaded.edu_check_rolls[0].gain, 7);
+    assert_eq!(loaded.edu_check_rolls[0].resulting_edu, 47);
+    assert_eq!(loaded.edu_check_rolls[1].d100, 1);
+    assert!(!loaded.edu_check_rolls[1].improved);
+    assert_eq!(loaded.edu_check_rolls[1].gain, 0);
+    assert_eq!(loaded.edu_check_rolls[1].resulting_edu, 47);
+}
+
+#[test]
+fn json_import_clears_luck_without_valid_roll_evidence() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.luck_state.value = Some(99);
+    save.luck_state.rolls.clear();
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(loaded.luck_state.value, None);
+    assert!(loaded.luck_state.rolls.is_empty());
+}
+
+#[test]
+fn json_import_recomputes_luck_from_valid_roll_evidence() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.concept.age = 18;
+    save.luck_state.value = Some(99);
+    save.luck_state.rolls = vec![
+        DiceResult {
+            rolls: vec![1, 1, 1],
+            plus_six: false,
+            value: 15,
+            kept: Some(true),
+        },
+        DiceResult {
+            rolls: vec![6, 6, 6],
+            plus_six: false,
+            value: 90,
+            kept: Some(false),
+        },
+    ];
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(loaded.luck_state.value, Some(90));
+    assert_eq!(loaded.luck_state.rolls.len(), 2);
+    assert_eq!(loaded.luck_state.rolls[0].kept, Some(false));
+    assert_eq!(loaded.luck_state.rolls[1].kept, Some(true));
+}
+
+#[test]
+fn json_import_drops_matching_value_rolls_with_invalid_dice_evidence() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.chars.set_char(Characteristic::Str, 50);
+    save.char_rolls.insert(
+        "STR".to_owned(),
+        DiceResult {
+            rolls: Vec::new(),
+            plus_six: false,
+            value: 50,
+            kept: None,
+        },
+    );
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(loaded.chars.get_char(Characteristic::Str), 50);
+    assert!(!loaded.char_rolls.contains_key("STR"));
 }
 
 #[test]
