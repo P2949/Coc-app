@@ -1880,6 +1880,77 @@ fn json_save_round_trips_editable_investigator_state() {
 }
 
 #[test]
+fn json_import_sanitizes_characteristics_and_stale_rolls() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.chars.set_char(Characteristic::Str, i32::MAX);
+    save.chars.set_char(Characteristic::Siz, -50);
+    save.chars.set_char(Characteristic::Dex, 52);
+    save.char_rolls.insert(
+        "STR".to_owned(),
+        DiceResult {
+            rolls: vec![1, 1, 1],
+            plus_six: false,
+            value: i32::MAX,
+            kept: None,
+        },
+    );
+    save.char_rolls.insert(
+        "BOGUS".to_owned(),
+        DiceResult {
+            rolls: vec![1, 1, 1],
+            plus_six: false,
+            value: 15,
+            kept: None,
+        },
+    );
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(loaded.chars.get_char(Characteristic::Str), 90);
+    assert_eq!(loaded.chars.get_char(Characteristic::Siz), 0);
+    assert_eq!(loaded.chars.get_char(Characteristic::Dex), 50);
+    assert!(loaded.char_rolls.is_empty());
+}
+
+#[test]
+fn json_import_drops_unknown_backstory_categories() {
+    let source = test_app();
+    let mut save = source.save_file();
+    save.backstory
+        .insert("Traits".to_owned(), "Cautious note-taker.".to_owned());
+    save.backstory.insert(
+        " Unknown Category ".to_owned(),
+        "This should not be preserved.".to_owned(),
+    );
+    save.backstory.insert(
+        "Phobias & Manias ".to_owned(),
+        "Hates deep water.".to_owned(),
+    );
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("sanitized save should import");
+
+    assert_eq!(
+        loaded.backstory.get("Traits").map(String::as_str),
+        Some("Cautious note-taker.")
+    );
+    assert_eq!(
+        loaded.backstory.get("Phobias & Manias").map(String::as_str),
+        Some("Hates deep water.")
+    );
+    assert!(!loaded.backstory.contains_key("Unknown Category"));
+    assert_eq!(loaded.backstory.len(), 2);
+}
+
+#[test]
 #[should_panic(expected = "duplicate formula")]
 fn occupation_validation_rejects_duplicate_formulas() {
     let occupations = vec![occupation(

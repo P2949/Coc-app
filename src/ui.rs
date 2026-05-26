@@ -199,14 +199,16 @@ impl CoC7eApp {
             .collect();
         self.custom_occupation = save.custom_occupation;
         self.allocations = save.allocations;
+        let allowed_backstory: HashSet<&str> = BACKSTORY_CATEGORIES.iter().copied().collect();
         self.backstory = save
             .backstory
             .into_iter()
             .filter_map(|(category, value)| {
-                if value.trim().is_empty() {
+                let category = category.trim();
+                if !allowed_backstory.contains(category) || value.trim().is_empty() {
                     None
                 } else {
-                    Some((category, value))
+                    Some((category.to_owned(), value))
                 }
             })
             .collect();
@@ -843,6 +845,28 @@ impl CoC7eApp {
         self.age_deductions.set_char(key, snapped);
     }
 
+    pub(crate) fn sanitize_characteristics(&mut self) {
+        for def in CHARACTERISTICS {
+            let raw = self.chars.get_char(def.key);
+            let sanitized = if raw <= 0 {
+                0
+            } else {
+                clamp_step_5(raw, def.min, def.max)
+            };
+            self.chars.set_char(def.key, sanitized);
+        }
+
+        let chars = self.chars.clone();
+        self.char_rolls.retain(|key, roll| {
+            Characteristic::from_key(key)
+                .map(|characteristic| {
+                    let value = chars.get_char(characteristic);
+                    value > 0 && value == roll.value
+                })
+                .unwrap_or(false)
+        });
+    }
+
     pub(crate) fn sanitize_age_deductions(&mut self) {
         let bracket = self.age_bracket();
         let allowed: HashSet<Characteristic> = bracket.physical_from.iter().copied().collect();
@@ -924,6 +948,7 @@ impl CoC7eApp {
             self.formula_key = FormulaKey::Edu4;
         }
 
+        self.sanitize_characteristics();
         self.sanitize_age_deductions();
         self.sanitize_allocations();
     }

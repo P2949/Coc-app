@@ -27,6 +27,9 @@ Check at least:
 - age controls update derived stats;
 - occupation choices unlock skills correctly;
 - skill allocation warnings display correctly;
+- JSON save copies to the clipboard;
+- pasted JSON loads into a fresh app state;
+- loaded investigators preserve characteristics, occupation choices, skills, Luck, age modifiers, and backstory;
 - summary text copies to the clipboard.
 
 ## Creating a release candidate
