@@ -396,6 +396,8 @@ pub(crate) fn typed_skill_list_validation_errors(
     let mut errors = Vec::new();
     let string_names: HashSet<&str> = string_list.iter().copied().collect();
     let typed_names: HashSet<&str> = typed_list.iter().map(|skill| skill.name()).collect();
+    let string_order: Vec<&str> = string_list.to_vec();
+    let typed_order: Vec<&str> = typed_list.iter().map(|skill| skill.name()).collect();
 
     if string_list.len() != string_names.len() {
         errors.push(format!(
@@ -417,6 +419,10 @@ pub(crate) fn typed_skill_list_validation_errors(
              (missing from typed list: {}; extra in typed list: {})",
             format_skill_name_delta(&missing),
             format_skill_name_delta(&extra)
+        ));
+    } else if typed_order != string_order {
+        errors.push(format!(
+            "{label} typed skill list order must match its string skill list"
         ));
     }
 

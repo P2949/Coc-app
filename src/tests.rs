@@ -1719,6 +1719,15 @@ fn runtime_skill_constant_validation_checks_typed_option_mirrors() {
     assert!(duplicate_errors.iter().any(|error| {
         error.contains("TEST_DUPLICATE_OPTIONS typed skill list contains duplicate entries")
     }));
+
+    let order_errors = typed_skill_list_validation_errors(
+        "TEST_ORDER_OPTIONS",
+        &["Accounting", "Anthropology", "Appraise"],
+        &[Skill::Accounting, Skill::Appraise, Skill::Anthropology],
+    );
+    assert!(order_errors.iter().any(|error| {
+        error.contains("TEST_ORDER_OPTIONS typed skill list order must match its string skill list")
+    }));
 }
 
 #[test]
