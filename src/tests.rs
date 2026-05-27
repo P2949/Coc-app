@@ -1654,29 +1654,45 @@ fn skill_name_constants_match_skill_specs() {
     );
     assert_eq!(selectable_actual, selectable_expected);
 
-    for skill in ART_SKILLS {
-        assert!(spec_names.contains(skill), "unknown art skill: {skill}");
-        assert!(skill.starts_with("Art/Craft"));
-    }
+    let selectable_option_names: HashSet<&str> = OCCUPATION_SELECTABLE_SKILL_OPTIONS
+        .iter()
+        .map(|skill| skill.name())
+        .collect();
+    assert_eq!(selectable_option_names, selectable_actual);
 
-    for skill in SCIENCE_SKILLS {
-        assert!(spec_names.contains(skill), "unknown science skill: {skill}");
-        assert!(skill.starts_with("Science"));
-    }
-
-    for skill in INTERPERSONAL_SKILLS {
+    for skill in ART_SKILL_OPTIONS {
         assert!(
-            spec_names.contains(skill),
-            "unknown interpersonal skill: {skill}"
+            spec_names.contains(skill.name()),
+            "unknown art skill: {}",
+            skill.name()
+        );
+        assert!(skill.name().starts_with("Art/Craft"));
+    }
+
+    for skill in SCIENCE_SKILL_OPTIONS {
+        assert!(
+            spec_names.contains(skill.name()),
+            "unknown science skill: {}",
+            skill.name()
+        );
+        assert!(skill.name().starts_with("Science"));
+    }
+
+    for skill in INTERPERSONAL_SKILL_OPTIONS {
+        assert!(
+            spec_names.contains(skill.name()),
+            "unknown interpersonal skill: {}",
+            skill.name()
         );
     }
 
-    for skill in FIREARMS_SKILLS {
+    for skill in FIREARMS_SKILL_OPTIONS {
         assert!(
-            spec_names.contains(skill),
-            "unknown firearms skill: {skill}"
+            spec_names.contains(skill.name()),
+            "unknown firearms skill: {}",
+            skill.name()
         );
-        assert!(skill.starts_with("Firearms"));
+        assert!(skill.name().starts_with("Firearms"));
     }
 }
 
@@ -1781,17 +1797,17 @@ fn occupation_validation_rejects_choice_slots_hidden_by_fixed_skills() {
         (0, 10),
         vec![FormulaKey::Edu4],
         vec![
-            fixed("Accounting"),
-            fixed("Anthropology"),
-            fixed("Appraise"),
-            fixed("Archaeology"),
-            fixed("Art/Craft"),
-            fixed("Charm"),
-            fixed("Climb"),
+            fixed(Skill::Accounting),
+            fixed(Skill::Anthropology),
+            fixed(Skill::Appraise),
+            fixed(Skill::Archaeology),
+            fixed(Skill::ArtCraft),
+            fixed(Skill::Charm),
+            fixed(Skill::Climb),
             choice(
                 "bad-hidden",
                 "Impossible choice",
-                vec!["Accounting".to_owned()],
+                vec![Skill::Accounting],
                 1,
             ),
         ],
@@ -1808,14 +1824,14 @@ fn occupation_validation_rejects_cross_choice_impossible_unique_picks() {
         (0, 10),
         vec![FormulaKey::Edu4],
         vec![
-            fixed("Accounting"),
-            fixed("Anthropology"),
-            fixed("Appraise"),
-            fixed("Archaeology"),
-            fixed("Art/Craft"),
-            fixed("Charm"),
-            choice("bad-a", "Bad A", vec!["Climb".to_owned()], 1),
-            choice("bad-b", "Bad B", vec!["Climb".to_owned()], 1),
+            fixed(Skill::Accounting),
+            fixed(Skill::Anthropology),
+            fixed(Skill::Appraise),
+            fixed(Skill::Archaeology),
+            fixed(Skill::ArtCraft),
+            fixed(Skill::Charm),
+            choice("bad-a", "Bad A", vec![Skill::Climb], 1),
+            choice("bad-b", "Bad B", vec![Skill::Climb], 1),
         ],
     )];
 
@@ -1883,14 +1899,14 @@ fn occupation_validation_errors_are_collectible_without_startup_panic() {
             (0, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Anthropology"),
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("Art/Craft"),
-                fixed("Charm"),
-                fixed("Climb"),
-                fixed("Disguise"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Anthropology),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::ArtCraft),
+                fixed(Skill::Charm),
+                fixed(Skill::Climb),
+                fixed(Skill::Disguise),
             ],
         ),
         occupation(
@@ -1898,14 +1914,14 @@ fn occupation_validation_errors_are_collectible_without_startup_panic() {
             (0, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Anthropology"),
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("Art/Craft"),
-                fixed("Charm"),
-                fixed("Climb"),
-                fixed("Disguise"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Anthropology),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::ArtCraft),
+                fixed(Skill::Charm),
+                fixed(Skill::Climb),
+                fixed(Skill::Disguise),
             ],
         ),
     ];
@@ -1928,14 +1944,14 @@ fn occupation_validation_rejects_duplicate_names() {
             (0, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Anthropology"),
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("Art/Craft"),
-                fixed("Charm"),
-                fixed("Climb"),
-                fixed("Disguise"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Anthropology),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::ArtCraft),
+                fixed(Skill::Charm),
+                fixed(Skill::Climb),
+                fixed(Skill::Disguise),
             ],
         ),
         occupation(
@@ -1943,14 +1959,14 @@ fn occupation_validation_rejects_duplicate_names() {
             (0, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Anthropology"),
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("Art/Craft"),
-                fixed("Charm"),
-                fixed("Climb"),
-                fixed("Disguise"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Anthropology),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::ArtCraft),
+                fixed(Skill::Charm),
+                fixed(Skill::Climb),
+                fixed(Skill::Disguise),
             ],
         ),
     ];
@@ -1966,14 +1982,14 @@ fn occupation_validation_rejects_names_that_only_differ_by_outer_whitespace() {
             (0, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Anthropology"),
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("Art/Craft"),
-                fixed("Charm"),
-                fixed("Climb"),
-                fixed("Disguise"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Anthropology),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::ArtCraft),
+                fixed(Skill::Charm),
+                fixed(Skill::Climb),
+                fixed(Skill::Disguise),
             ],
         ),
         occupation(
@@ -1981,14 +1997,14 @@ fn occupation_validation_rejects_names_that_only_differ_by_outer_whitespace() {
             (0, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Anthropology"),
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("Art/Craft"),
-                fixed("Charm"),
-                fixed("Climb"),
-                fixed("Disguise"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Anthropology),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::ArtCraft),
+                fixed(Skill::Charm),
+                fixed(Skill::Climb),
+                fixed(Skill::Disguise),
             ],
         ),
     ];
@@ -2009,22 +2025,22 @@ fn occupation_validation_rejects_choice_ids_that_only_differ_by_outer_whitespace
         (0, 10),
         vec![FormulaKey::Edu4],
         vec![
-            fixed("Accounting"),
-            fixed("Anthropology"),
-            fixed("Appraise"),
-            fixed("Archaeology"),
-            fixed("Art/Craft"),
-            fixed("Charm"),
+            fixed(Skill::Accounting),
+            fixed(Skill::Anthropology),
+            fixed(Skill::Appraise),
+            fixed(Skill::Archaeology),
+            fixed(Skill::ArtCraft),
+            fixed(Skill::Charm),
             choice(
                 "duplicate-choice",
                 "First choice",
-                vec!["Climb".to_owned(), "Disguise".to_owned()],
+                vec![Skill::Climb, Skill::Disguise],
                 1,
             ),
             choice(
                 " duplicate-choice ",
                 "Second choice",
-                vec!["Dodge".to_owned(), "Drive Auto".to_owned()],
+                vec![Skill::Dodge, Skill::DriveAuto],
                 1,
             ),
         ],
@@ -2051,13 +2067,13 @@ fn occupation_validation_rejects_duplicate_choice_options() {
         (0, 10),
         vec![FormulaKey::Edu4],
         vec![
-            fixed("Accounting"),
-            fixed("Anthropology"),
-            fixed("Appraise"),
-            fixed("Archaeology"),
-            fixed("Art/Craft"),
-            fixed("Climb"),
-            fixed("Disguise"),
+            fixed(Skill::Accounting),
+            fixed(Skill::Anthropology),
+            fixed(Skill::Appraise),
+            fixed(Skill::Archaeology),
+            fixed(Skill::ArtCraft),
+            fixed(Skill::Climb),
+            fixed(Skill::Disguise),
             choice(
                 "duplicate-option",
                 "Duplicate option",
@@ -2203,6 +2219,30 @@ fn json_import_accepts_legacy_ordered_characteristic_arrays() {
     loaded
         .import_json_save(&edited_json)
         .expect("legacy characteristic arrays should still import");
+
+    assert_eq!(loaded.char_value("STR"), 50);
+    assert_eq!(loaded.char_value("EDU"), 85);
+}
+
+#[test]
+fn json_import_accepts_legacy_characteristic_values_objects() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+
+    value["chars"] = serde_json::json!({
+        "values": [50, 55, 60, 65, 70, 75, 80, 85]
+    });
+    value["age_deductions"] = serde_json::json!({
+        "values": [0, 5, 0, 0, 0, 0, 0, 0]
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&edited_json)
+        .expect("legacy values-object characteristic saves should still import");
 
     assert_eq!(loaded.char_value("STR"), 50);
     assert_eq!(loaded.char_value("EDU"), 85);
@@ -2482,14 +2522,14 @@ fn occupation_validation_rejects_duplicate_formulas() {
         (0, 10),
         vec![FormulaKey::Edu4, FormulaKey::Edu4],
         vec![
-            fixed("Accounting"),
-            fixed("Anthropology"),
-            fixed("Appraise"),
-            fixed("Archaeology"),
-            fixed("Art/Craft"),
-            fixed("Charm"),
-            fixed("Climb"),
-            fixed("Disguise"),
+            fixed(Skill::Accounting),
+            fixed(Skill::Anthropology),
+            fixed(Skill::Appraise),
+            fixed(Skill::Archaeology),
+            fixed(Skill::ArtCraft),
+            fixed(Skill::Charm),
+            fixed(Skill::Climb),
+            fixed(Skill::Disguise),
         ],
     )];
 

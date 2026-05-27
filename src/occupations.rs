@@ -162,51 +162,144 @@ pub(crate) const SCIENCE_SKILLS: &[&str] = &[
 pub(crate) const INTERPERSONAL_SKILLS: &[&str] = &["Charm", "Fast Talk", "Intimidate", "Persuade"];
 pub(crate) const FIREARMS_SKILLS: &[&str] = &["Firearms (Handgun)", "Firearms (Rifle/Shotgun)"];
 
-pub(crate) fn skill_options(options: &[&str]) -> Vec<Skill> {
-    options
-        .iter()
-        .map(|skill| {
-            Skill::from_name(skill).unwrap_or_else(|| {
-                panic!("unknown occupation skill option `{skill}` in built-in occupation data")
-            })
-        })
-        .collect()
+pub(crate) const OCCUPATION_SELECTABLE_SKILL_OPTIONS: &[Skill] = &[
+    Skill::Accounting,
+    Skill::Anthropology,
+    Skill::Appraise,
+    Skill::Archaeology,
+    Skill::ArtCraft,
+    Skill::ArtCraftActing,
+    Skill::ArtCraftFineArt,
+    Skill::ArtCraftForgery,
+    Skill::ArtCraftLiterature,
+    Skill::ArtCraftPhotography,
+    Skill::ArtCraftTechnicalDrawing,
+    Skill::ArtCraftWriting,
+    Skill::Charm,
+    Skill::Climb,
+    Skill::Disguise,
+    Skill::Dodge,
+    Skill::DriveAuto,
+    Skill::ElectricalRepair,
+    Skill::FastTalk,
+    Skill::FightingBrawl,
+    Skill::FirearmsHandgun,
+    Skill::FirearmsRifleShotgun,
+    Skill::FirstAid,
+    Skill::History,
+    Skill::Intimidate,
+    Skill::Jump,
+    Skill::LanguageOther,
+    Skill::LanguageOwn,
+    Skill::Law,
+    Skill::LibraryUse,
+    Skill::Listen,
+    Skill::Locksmith,
+    Skill::MechanicalRepair,
+    Skill::Medicine,
+    Skill::NaturalWorld,
+    Skill::Navigate,
+    Skill::Occult,
+    Skill::OperateHeavyMachinery,
+    Skill::Persuade,
+    Skill::Pilot,
+    Skill::Psychoanalysis,
+    Skill::Psychology,
+    Skill::Ride,
+    Skill::ScienceAstronomy,
+    Skill::ScienceBiology,
+    Skill::ScienceBotany,
+    Skill::ScienceChemistry,
+    Skill::ScienceCryptography,
+    Skill::ScienceEngineering,
+    Skill::ScienceForensics,
+    Skill::ScienceGeology,
+    Skill::ScienceMathematics,
+    Skill::SciencePharmacy,
+    Skill::SciencePhysics,
+    Skill::ScienceZoology,
+    Skill::SleightOfHand,
+    Skill::SpotHidden,
+    Skill::Stealth,
+    Skill::Survival,
+    Skill::Swim,
+    Skill::Throw,
+    Skill::Track,
+];
+
+pub(crate) const ART_SKILL_OPTIONS: &[Skill] = &[
+    Skill::ArtCraft,
+    Skill::ArtCraftActing,
+    Skill::ArtCraftFineArt,
+    Skill::ArtCraftForgery,
+    Skill::ArtCraftLiterature,
+    Skill::ArtCraftPhotography,
+    Skill::ArtCraftTechnicalDrawing,
+    Skill::ArtCraftWriting,
+];
+
+pub(crate) const SCIENCE_SKILL_OPTIONS: &[Skill] = &[
+    Skill::ScienceAstronomy,
+    Skill::ScienceBiology,
+    Skill::ScienceBotany,
+    Skill::ScienceChemistry,
+    Skill::ScienceCryptography,
+    Skill::ScienceEngineering,
+    Skill::ScienceForensics,
+    Skill::ScienceGeology,
+    Skill::ScienceMathematics,
+    Skill::SciencePharmacy,
+    Skill::SciencePhysics,
+    Skill::ScienceZoology,
+];
+
+pub(crate) const INTERPERSONAL_SKILL_OPTIONS: &[Skill] = &[
+    Skill::Charm,
+    Skill::FastTalk,
+    Skill::Intimidate,
+    Skill::Persuade,
+];
+
+pub(crate) const FIREARMS_SKILL_OPTIONS: &[Skill] =
+    &[Skill::FirearmsHandgun, Skill::FirearmsRifleShotgun];
+
+pub(crate) fn skill_options(options: &[Skill]) -> Vec<Skill> {
+    options.to_vec()
 }
 
 pub(crate) fn occupation_selectable_skills() -> &'static [&'static str] {
     OCCUPATION_SELECTABLE_SKILLS
 }
 
-pub(crate) fn art_skills() -> &'static [&'static str] {
-    ART_SKILLS
+pub(crate) fn occupation_selectable_skill_options() -> &'static [Skill] {
+    OCCUPATION_SELECTABLE_SKILL_OPTIONS
 }
 
-pub(crate) fn science_skills() -> &'static [&'static str] {
-    SCIENCE_SKILLS
+pub(crate) fn art_skills() -> &'static [Skill] {
+    ART_SKILL_OPTIONS
 }
 
-pub(crate) fn interpersonal_skills() -> &'static [&'static str] {
-    INTERPERSONAL_SKILLS
+pub(crate) fn science_skills() -> &'static [Skill] {
+    SCIENCE_SKILL_OPTIONS
 }
 
-pub(crate) fn firearms_skills() -> &'static [&'static str] {
-    FIREARMS_SKILLS
+pub(crate) fn interpersonal_skills() -> &'static [Skill] {
+    INTERPERSONAL_SKILL_OPTIONS
 }
 
-pub(crate) fn fixed(name: &str) -> Slot {
-    let skill =
-        Skill::from_name(name).unwrap_or_else(|| panic!("unknown fixed occupation skill `{name}`"));
+pub(crate) fn firearms_skills() -> &'static [Skill] {
+    FIREARMS_SKILL_OPTIONS
+}
+
+pub(crate) fn fixed(skill: Skill) -> Slot {
     Slot::Skill(skill)
 }
 
-pub(crate) fn choice<T>(id: &str, label: &str, options: Vec<T>, count: usize) -> Slot
-where
-    T: Into<Skill>,
-{
+pub(crate) fn choice(id: &str, label: &str, options: Vec<Skill>, count: usize) -> Slot {
     Slot::Choice {
         id: id.to_owned(),
         label: label.to_owned(),
-        options: options.into_iter().map(Into::into).collect(),
+        options,
         count,
     }
 }
@@ -215,7 +308,7 @@ pub(crate) fn any_skill(id: &str, count: usize, label: &str) -> Slot {
     choice(
         id,
         label,
-        skill_options(occupation_selectable_skills()),
+        skill_options(occupation_selectable_skill_options()),
         count,
     )
 }
@@ -537,18 +630,18 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (30, 70),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Appraise"),
+                fixed(Skill::Appraise),
                 choice(
                     "antiquarian-art",
                     "Art/Craft specialty",
                     skill_options(art_skills()),
                     1,
                 ),
-                fixed("History"),
-                fixed("Library Use"),
-                fixed("Language (Other)"),
+                fixed(Skill::History),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::LanguageOther),
                 interpersonal("antiquarian-interpersonal", 1),
-                fixed("Spot Hidden"),
+                fixed(Skill::SpotHidden),
                 any_skill("antiquarian-any", 1, "Any occupation skill"),
             ],
         ),
@@ -557,13 +650,13 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (10, 40),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Appraise"),
-                fixed("Archaeology"),
-                fixed("History"),
-                fixed("Language (Other)"),
-                fixed("Library Use"),
-                fixed("Spot Hidden"),
-                fixed("Mechanical Repair"),
+                fixed(Skill::Appraise),
+                fixed(Skill::Archaeology),
+                fixed(Skill::History),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::SpotHidden),
+                fixed(Skill::MechanicalRepair),
                 choice(
                     "archaeologist-nav-science",
                     "Navigate or Science",
@@ -583,11 +676,11 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                     skill_options(art_skills()),
                     1,
                 ),
-                fixed("History"),
-                fixed("Natural World"),
-                fixed("Language (Other)"),
-                fixed("Psychology"),
-                fixed("Spot Hidden"),
+                fixed(Skill::History),
+                fixed(Skill::NaturalWorld),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Psychology),
+                fixed(Skill::SpotHidden),
                 interpersonal("artist-interpersonal", 1),
                 any_skill("artist-any", 1, "Any occupation skill"),
             ],
@@ -597,18 +690,18 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 30),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Art/Craft (Writing)"),
-                fixed("History"),
-                fixed("Library Use"),
+                fixed(Skill::ArtCraftWriting),
+                fixed(Skill::History),
+                fixed(Skill::LibraryUse),
                 choice(
                     "author-nature-occult",
                     "Natural World or Occult",
-                    vec!["Natural World".to_owned(), "Occult".to_owned()],
+                    vec![Skill::NaturalWorld, Skill::Occult],
                     1,
                 ),
-                fixed("Language (Other)"),
-                fixed("Language (Own)"),
-                fixed("Psychology"),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::LanguageOwn),
+                fixed(Skill::Psychology),
                 any_skill("author-any", 1, "Any occupation skill"),
             ],
         ),
@@ -617,22 +710,19 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (5, 40),
             vec![FormulaKey::Edu2Dex2],
             vec![
-                fixed("Appraise"),
-                fixed("Climb"),
+                fixed(Skill::Appraise),
+                fixed(Skill::Climb),
                 choice(
                     "burglar-repair",
                     "Electrical or Mechanical Repair",
-                    vec![
-                        "Electrical Repair".to_owned(),
-                        "Mechanical Repair".to_owned(),
-                    ],
+                    vec![Skill::ElectricalRepair, Skill::MechanicalRepair],
                     1,
                 ),
-                fixed("Listen"),
-                fixed("Locksmith"),
-                fixed("Sleight of Hand"),
-                fixed("Stealth"),
-                fixed("Spot Hidden"),
+                fixed(Skill::Listen),
+                fixed(Skill::Locksmith),
+                fixed(Skill::SleightOfHand),
+                fixed(Skill::Stealth),
+                fixed(Skill::SpotHidden),
             ],
         ),
         occupation(
@@ -640,13 +730,13 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 60),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("History"),
-                fixed("Library Use"),
-                fixed("Listen"),
-                fixed("Language (Other)"),
-                fixed("Psychology"),
-                fixed("Persuade"),
+                fixed(Skill::Accounting),
+                fixed(Skill::History),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::Listen),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Psychology),
+                fixed(Skill::Persuade),
                 any_skill("clergy-any", 1, "Any occupation skill"),
             ],
         ),
@@ -661,18 +751,18 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                     skill_options(art_skills()),
                     1,
                 ),
-                fixed("Disguise"),
-                fixed("Fighting (Brawl)"),
+                fixed(Skill::Disguise),
+                fixed(Skill::FightingBrawl),
                 choice(
                     "criminal-firearms",
                     "Firearms specialty",
                     skill_options(firearms_skills()),
                     1,
                 ),
-                fixed("Locksmith"),
-                fixed("Mechanical Repair"),
-                fixed("Sleight of Hand"),
-                fixed("Stealth"),
+                fixed(Skill::Locksmith),
+                fixed(Skill::MechanicalRepair),
+                fixed(Skill::SleightOfHand),
+                fixed(Skill::Stealth),
             ],
         ),
         occupation(
@@ -692,8 +782,8 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                     skill_options(firearms_skills()),
                     1,
                 ),
-                fixed("Language (Other)"),
-                fixed("Ride"),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Ride),
                 interpersonal("dilettante-interpersonal", 1),
                 any_skill("dilettante-any", 3, "Any three occupation skills"),
             ],
@@ -703,12 +793,12 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (30, 80),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("First Aid"),
-                fixed("Medicine"),
-                fixed("Language (Other)"),
-                fixed("Psychology"),
-                fixed("Science (Biology)"),
-                fixed("Science (Pharmacy)"),
+                fixed(Skill::FirstAid),
+                fixed(Skill::Medicine),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Psychology),
+                fixed(Skill::ScienceBiology),
+                fixed(Skill::SciencePharmacy),
                 any_skill("doctor-any", 2, "Any two academic/personal specialties"),
             ],
         ),
@@ -721,12 +811,12 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                 FormulaKey::Edu2Str2,
             ],
             vec![
-                fixed("Climb"),
-                fixed("Jump"),
-                fixed("Listen"),
-                fixed("Navigate"),
+                fixed(Skill::Climb),
+                fixed(Skill::Jump),
+                fixed(Skill::Listen),
+                fixed(Skill::Navigate),
                 interpersonal("drifter-interpersonal", 1),
-                fixed("Stealth"),
+                fixed(Skill::Stealth),
                 any_skill("drifter-any", 2, "Any two occupation skills"),
             ],
         ),
@@ -735,13 +825,13 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (30, 60),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Art/Craft (Technical Drawing)"),
-                fixed("Electrical Repair"),
-                fixed("Library Use"),
-                fixed("Mechanical Repair"),
-                fixed("Operate Heavy Machinery"),
-                fixed("Science (Engineering)"),
-                fixed("Science (Physics)"),
+                fixed(Skill::ArtCraftTechnicalDrawing),
+                fixed(Skill::ElectricalRepair),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::MechanicalRepair),
+                fixed(Skill::OperateHeavyMachinery),
+                fixed(Skill::ScienceEngineering),
+                fixed(Skill::SciencePhysics),
                 any_skill("engineer-any", 1, "Any occupation skill"),
             ],
         ),
@@ -756,9 +846,9 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                     skill_options(art_skills()),
                     1,
                 ),
-                fixed("Disguise"),
-                fixed("Listen"),
-                fixed("Psychology"),
+                fixed(Skill::Disguise),
+                fixed(Skill::Listen),
+                fixed(Skill::Psychology),
                 interpersonal("entertainer-interpersonal", 1),
                 any_skill("entertainer-any", 3, "Any three occupation skills"),
             ],
@@ -775,7 +865,7 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                 choice(
                     "explorer-climb-swim",
                     "Climb or Swim",
-                    vec!["Climb".to_owned(), "Swim".to_owned()],
+                    vec![Skill::Climb, Skill::Swim],
                     1,
                 ),
                 choice(
@@ -784,12 +874,12 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                     skill_options(firearms_skills()),
                     1,
                 ),
-                fixed("History"),
-                fixed("Jump"),
-                fixed("Natural World"),
-                fixed("Navigate"),
-                fixed("Language (Other)"),
-                fixed("Survival"),
+                fixed(Skill::History),
+                fixed(Skill::Jump),
+                fixed(Skill::NaturalWorld),
+                fixed(Skill::Navigate),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Survival),
             ],
         ),
         occupation(
@@ -797,12 +887,12 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 30),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Art/Craft (Photography)"),
-                fixed("History"),
-                fixed("Library Use"),
-                fixed("Language (Own)"),
+                fixed(Skill::ArtCraftPhotography),
+                fixed(Skill::History),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::LanguageOwn),
                 interpersonal("journalist-interpersonal", 1),
-                fixed("Psychology"),
+                fixed(Skill::Psychology),
                 any_skill("journalist-any", 2, "Any two occupation skills"),
             ],
         ),
@@ -811,11 +901,11 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (30, 80),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Law"),
-                fixed("Library Use"),
-                fixed("Persuade"),
-                fixed("Psychology"),
+                fixed(Skill::Accounting),
+                fixed(Skill::Law),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::Persuade),
+                fixed(Skill::Psychology),
                 any_skill("lawyer-any", 3, "Any three occupation skills"),
             ],
         ),
@@ -824,10 +914,10 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 35),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Accounting"),
-                fixed("Library Use"),
-                fixed("Language (Other)"),
-                fixed("Language (Own)"),
+                fixed(Skill::Accounting),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::LanguageOwn),
                 any_skill("librarian-any", 4, "Any four occupation skills"),
             ],
         ),
@@ -836,15 +926,15 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (20, 70),
             vec![FormulaKey::Edu2Dex2, FormulaKey::Edu2Str2],
             vec![
-                fixed("Accounting"),
+                fixed(Skill::Accounting),
                 choice(
                     "military-firearms",
                     "Firearms specialty",
                     skill_options(firearms_skills()),
                     1,
                 ),
-                fixed("Navigate"),
-                fixed("First Aid"),
+                fixed(Skill::Navigate),
+                fixed(Skill::FirstAid),
                 interpersonal("military-interpersonal", 1),
                 any_skill("military-any", 3, "Any three occupation skills"),
             ],
@@ -854,14 +944,14 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 30),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("First Aid"),
-                fixed("Listen"),
-                fixed("Medicine"),
+                fixed(Skill::FirstAid),
+                fixed(Skill::Listen),
+                fixed(Skill::Medicine),
                 interpersonal("nurse-interpersonal", 1),
-                fixed("Psychology"),
-                fixed("Science (Biology)"),
-                fixed("Science (Chemistry)"),
-                fixed("Spot Hidden"),
+                fixed(Skill::Psychology),
+                fixed(Skill::ScienceBiology),
+                fixed(Skill::ScienceChemistry),
+                fixed(Skill::SpotHidden),
             ],
         ),
         occupation(
@@ -869,12 +959,12 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 65),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Anthropology"),
-                fixed("History"),
-                fixed("Library Use"),
-                fixed("Occult"),
-                fixed("Language (Other)"),
-                fixed("Science (Astronomy)"),
+                fixed(Skill::Anthropology),
+                fixed(Skill::History),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::Occult),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::ScienceAstronomy),
                 any_skill("occultist-any", 2, "Any two occupation skills"),
             ],
         ),
@@ -883,13 +973,13 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 30),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Anthropology"),
-                fixed("Art/Craft (Photography)"),
-                fixed("History"),
-                fixed("Library Use"),
-                fixed("Occult"),
-                fixed("Language (Other)"),
-                fixed("Psychology"),
+                fixed(Skill::Anthropology),
+                fixed(Skill::ArtCraftPhotography),
+                fixed(Skill::History),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::Occult),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Psychology),
                 any_skill("parapsychologist-any", 1, "Any occupation skill"),
             ],
         ),
@@ -898,11 +988,11 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 30),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Art/Craft (Photography)"),
-                fixed("Psychology"),
-                fixed("Science (Chemistry)"),
-                fixed("Stealth"),
-                fixed("Spot Hidden"),
+                fixed(Skill::ArtCraftPhotography),
+                fixed(Skill::Psychology),
+                fixed(Skill::ScienceChemistry),
+                fixed(Skill::Stealth),
+                fixed(Skill::SpotHidden),
                 any_skill("photographer-any", 3, "Any three occupation skills"),
             ],
         ),
@@ -914,7 +1004,7 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                 choice(
                     "police-acting-disguise",
                     "Acting or Disguise",
-                    vec!["Art/Craft (Acting)".to_owned(), "Disguise".to_owned()],
+                    vec![Skill::ArtCraftActing, Skill::Disguise],
                     1,
                 ),
                 choice(
@@ -923,11 +1013,11 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                     skill_options(firearms_skills()),
                     1,
                 ),
-                fixed("Law"),
-                fixed("Listen"),
+                fixed(Skill::Law),
+                fixed(Skill::Listen),
                 interpersonal("police-interpersonal", 1),
-                fixed("Psychology"),
-                fixed("Spot Hidden"),
+                fixed(Skill::Psychology),
+                fixed(Skill::SpotHidden),
                 any_skill("police-any", 1, "Any occupation skill"),
             ],
         ),
@@ -936,13 +1026,13 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 30),
             vec![FormulaKey::Edu2Dex2, FormulaKey::Edu2Str2],
             vec![
-                fixed("Art/Craft (Photography)"),
-                fixed("Disguise"),
-                fixed("Law"),
-                fixed("Library Use"),
+                fixed(Skill::ArtCraftPhotography),
+                fixed(Skill::Disguise),
+                fixed(Skill::Law),
+                fixed(Skill::LibraryUse),
                 interpersonal("pi-interpersonal", 1),
-                fixed("Psychology"),
-                fixed("Spot Hidden"),
+                fixed(Skill::Psychology),
+                fixed(Skill::SpotHidden),
                 any_skill("pi-any", 1, "Any occupation skill"),
             ],
         ),
@@ -951,10 +1041,10 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (20, 70),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Library Use"),
-                fixed("Language (Other)"),
-                fixed("Language (Own)"),
-                fixed("Psychology"),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::LanguageOwn),
+                fixed(Skill::Psychology),
                 any_skill("professor-any", 4, "Any four academic/personal specialties"),
             ],
         ),
@@ -963,13 +1053,13 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (30, 60),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Listen"),
-                fixed("Medicine"),
-                fixed("Language (Other)"),
-                fixed("Persuade"),
-                fixed("Psychoanalysis"),
-                fixed("Psychology"),
-                fixed("Science (Biology)"),
+                fixed(Skill::Listen),
+                fixed(Skill::Medicine),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::Persuade),
+                fixed(Skill::Psychoanalysis),
+                fixed(Skill::Psychology),
+                fixed(Skill::ScienceBiology),
                 any_skill("psychiatrist-any", 1, "Any occupation skill"),
             ],
         ),
@@ -978,16 +1068,16 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (9, 50),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Library Use"),
-                fixed("Language (Other)"),
-                fixed("Language (Own)"),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::LanguageOwn),
                 choice(
                     "scientist-science",
                     "Science specialties",
                     skill_options(science_skills()),
                     2,
                 ),
-                fixed("Spot Hidden"),
+                fixed(Skill::SpotHidden),
                 any_skill("scientist-any", 2, "Any two occupation skills"),
             ],
         ),
@@ -999,26 +1089,26 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                 choice(
                     "soldier-climb-swim",
                     "Climb or Swim",
-                    vec!["Climb".to_owned(), "Swim".to_owned()],
+                    vec![Skill::Climb, Skill::Swim],
                     1,
                 ),
-                fixed("Dodge"),
-                fixed("Fighting (Brawl)"),
+                fixed(Skill::Dodge),
+                fixed(Skill::FightingBrawl),
                 choice(
                     "soldier-firearms",
                     "Firearms specialty",
                     skill_options(firearms_skills()),
                     1,
                 ),
-                fixed("Stealth"),
-                fixed("Survival"),
+                fixed(Skill::Stealth),
+                fixed(Skill::Survival),
                 choice(
                     "soldier-two",
                     "Choose two",
                     vec![
-                        "First Aid".to_owned(),
-                        "Mechanical Repair".to_owned(),
-                        "Language (Other)".to_owned(),
+                        Skill::FirstAid,
+                        Skill::MechanicalRepair,
+                        Skill::LanguageOther,
                     ],
                     2,
                 ),
@@ -1029,10 +1119,10 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
             (5, 10),
             vec![FormulaKey::Edu4],
             vec![
-                fixed("Library Use"),
-                fixed("Listen"),
-                fixed("Language (Other)"),
-                fixed("Language (Own)"),
+                fixed(Skill::LibraryUse),
+                fixed(Skill::Listen),
+                fixed(Skill::LanguageOther),
+                fixed(Skill::LanguageOwn),
                 any_skill("student-any", 4, "Any four occupation skills"),
             ],
         ),

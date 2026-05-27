@@ -127,8 +127,9 @@ pub(crate) const CHARACTERISTIC_SAVE_KEYS: &[Characteristic; Characteristic::COU
     Characteristic::Edu,
 ];
 
-pub(crate) const CHARACTERISTIC_SAVE_FIELD_NAMES: &[&str] =
-    &["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"];
+pub(crate) const CHARACTERISTIC_SAVE_FIELD_NAMES: &[&str] = &[
+    "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "values",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CharacteristicValues {
@@ -163,11 +164,22 @@ impl<'de> Deserialize<'de> for CharacteristicValues {
     {
         struct CharacteristicValuesVisitor;
 
+        impl CharacteristicValuesVisitor {
+            fn from_ordered_values<E>(
+                values: [i32; Characteristic::COUNT],
+            ) -> Result<CharacteristicValues, E>
+            where
+                E: DeError,
+            {
+                Ok(CharacteristicValues { values })
+            }
+        }
+
         impl<'de> Visitor<'de> for CharacteristicValuesVisitor {
             type Value = CharacteristicValues;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a characteristic map keyed by STR/CON/SIZ/DEX/APP/INT/POW/EDU or a legacy ordered array")
+                formatter.write_str("a characteristic map keyed by STR/CON/SIZ/DEX/APP/INT/POW/EDU, a legacy { values: [...] } object, or a legacy ordered array")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -180,7 +192,7 @@ impl<'de> Deserialize<'de> for CharacteristicValues {
                         .next_element()?
                         .ok_or_else(|| DeError::invalid_length(Characteristic::COUNT, &self))?;
                 }
-                Ok(CharacteristicValues { values })
+                Self::from_ordered_values(values)
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -189,8 +201,31 @@ impl<'de> Deserialize<'de> for CharacteristicValues {
             {
                 let mut out = CharacteristicValues::default();
                 let mut seen = [false; Characteristic::COUNT];
+                let mut saw_legacy_values = false;
 
-                while let Some((key, value)) = map.next_entry::<String, i32>()? {
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "values" {
+                        if saw_legacy_values {
+                            return Err(DeError::duplicate_field("values"));
+                        }
+                        if seen.iter().any(|value_seen| *value_seen) {
+                            return Err(DeError::custom(
+                                "legacy characteristic values object cannot be mixed with named characteristic fields",
+                            ));
+                        }
+
+                        let values = map.next_value::<[i32; Characteristic::COUNT]>()?;
+                        out = Self::from_ordered_values(values)?;
+                        saw_legacy_values = true;
+                        continue;
+                    }
+
+                    if saw_legacy_values {
+                        return Err(DeError::custom(
+                            "legacy characteristic values object cannot be mixed with named characteristic fields",
+                        ));
+                    }
+
                     let characteristic =
                         Characteristic::from_key(key.as_str()).ok_or_else(|| {
                             DeError::unknown_field(key.as_str(), CHARACTERISTIC_SAVE_FIELD_NAMES)
@@ -200,6 +235,7 @@ impl<'de> Deserialize<'de> for CharacteristicValues {
                         return Err(DeError::duplicate_field(characteristic.key()));
                     }
                     seen[index] = true;
+                    let value = map.next_value::<i32>()?;
                     out.set_char(characteristic, value);
                 }
 
@@ -496,18 +532,6 @@ impl Skill {
             "Track" => Some(Self::Track),
             _ => None,
         }
-    }
-}
-
-impl From<&str> for Skill {
-    fn from(value: &str) -> Self {
-        Self::from_name(value).unwrap_or_else(|| panic!("unknown skill name `{value}`"))
-    }
-}
-
-impl From<String> for Skill {
-    fn from(value: String) -> Self {
-        Self::from(value.as_str())
     }
 }
 
