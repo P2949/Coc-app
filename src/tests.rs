@@ -2274,6 +2274,32 @@ fn json_import_accepts_legacy_characteristic_values_objects() {
 }
 
 #[test]
+fn json_import_rejects_incomplete_named_characteristic_maps() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+
+    value["chars"] = serde_json::json!({
+        "STR": 50,
+        "CON": 55,
+        "SIZ": 60,
+        "DEX": 65,
+        "APP": 70,
+        "INT": 75,
+        "POW": 80
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let error = loaded
+        .import_json_save(&edited_json)
+        .expect_err("missing EDU should reject named characteristic maps");
+
+    assert!(error.contains("EDU") || error.contains("missing"));
+}
+
+#[test]
 fn json_import_reports_unsupported_future_save_versions() {
     let app = test_app();
     let json = app.export_json_save().expect("save should serialize");

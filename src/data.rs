@@ -239,6 +239,14 @@ impl<'de> Deserialize<'de> for CharacteristicValues {
                     out.set_char(characteristic, value);
                 }
 
+                if !saw_legacy_values {
+                    for key in CHARACTERISTIC_SAVE_KEYS {
+                        if !seen[key.index()] {
+                            return Err(DeError::missing_field(key.key()));
+                        }
+                    }
+                }
+
                 Ok(out)
             }
         }
