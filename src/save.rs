@@ -40,7 +40,11 @@ impl CoC7eApp {
             concept: self.concept.clone(),
             char_method: self.char_method,
             chars: self.chars.clone(),
-            char_rolls: self.char_rolls.clone(),
+            char_rolls: self
+                .char_rolls
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
             luck_state: self.luck_state.clone(),
             age_deductions: self.age_deductions.clone(),
             edu_bonus: self.edu_bonus,
@@ -50,7 +54,11 @@ impl CoC7eApp {
             occupation_choices,
             custom_occupation: self.custom_occupation.clone(),
             allocations: self.allocations.clone(),
-            backstory: self.backstory.clone(),
+            backstory: self
+                .backstory
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
         }
     }
 
@@ -77,7 +85,7 @@ impl CoC7eApp {
         self.last_age_bracket_index = get_age_bracket_index(self.concept.age);
         self.char_method = save.char_method;
         self.chars = save.chars;
-        self.char_rolls = save.char_rolls;
+        self.char_rolls = save.char_rolls.into_iter().collect();
         self.luck_state = save.luck_state;
         self.age_deductions = save.age_deductions;
         self.edu_bonus = save.edu_bonus.clamp(0, MAX_CREATION_VALUE);

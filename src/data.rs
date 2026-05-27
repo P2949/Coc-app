@@ -811,7 +811,7 @@ pub(crate) struct InvestigatorSaveFile {
     pub(crate) concept: Concept,
     pub(crate) char_method: CharMethod,
     pub(crate) chars: CharacteristicValues,
-    pub(crate) char_rolls: HashMap<String, DiceResult>,
+    pub(crate) char_rolls: BTreeMap<String, DiceResult>,
     pub(crate) luck_state: LuckState,
     pub(crate) age_deductions: CharacteristicValues,
     pub(crate) edu_bonus: i32,
@@ -821,7 +821,7 @@ pub(crate) struct InvestigatorSaveFile {
     pub(crate) occupation_choices: Vec<SavedOccupationChoice>,
     pub(crate) custom_occupation: CustomOccupation,
     pub(crate) allocations: AllocationState,
-    pub(crate) backstory: HashMap<String, String>,
+    pub(crate) backstory: BTreeMap<String, String>,
 }
 
 #[derive(Debug)]

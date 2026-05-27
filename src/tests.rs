@@ -2193,7 +2193,7 @@ fn json_save_round_trips_editable_investigator_state() {
 }
 
 #[test]
-fn json_export_uses_named_characteristics_and_stable_allocation_keys() {
+fn json_export_uses_named_characteristics_and_stable_save_map_keys() {
     let mut app = test_app();
     app.apply_characteristic_preset(
         CharMethod::QuickArray,
@@ -2214,6 +2214,30 @@ fn json_export_uses_named_characteristics_and_stable_allocation_keys() {
     app.allocations
         .occupation_points
         .insert(Skill::Accounting, 5);
+    app.char_rolls.insert(
+        "STR".to_owned(),
+        DiceResult {
+            rolls: vec![3, 3, 4],
+            plus_six: false,
+            value: 50,
+            kept: None,
+        },
+    );
+    app.char_rolls.insert(
+        "DEX".to_owned(),
+        DiceResult {
+            rolls: vec![4, 4, 2],
+            plus_six: false,
+            value: 50,
+            kept: None,
+        },
+    );
+    app.backstory
+        .insert("Traits".to_owned(), "Careful note-taker.".to_owned());
+    app.backstory.insert(
+        "Ideology & Beliefs".to_owned(),
+        "Trusts observable evidence.".to_owned(),
+    );
 
     let json = app.export_json_save().expect("save should serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("exported save should parse");
@@ -2227,6 +2251,25 @@ fn json_export_uses_named_characteristics_and_stable_allocation_keys() {
         .expect("allocation points should serialize as an object");
     let keys: Vec<&str> = occupation_points.keys().map(String::as_str).collect();
     assert_eq!(keys, vec!["Accounting", "Library Use"]);
+
+    let key_position_after = |anchor: &str, key: &str| {
+        let start = json
+            .find(anchor)
+            .unwrap_or_else(|| panic!("missing JSON anchor {anchor}"));
+        let needle = format!("\"{key}\"");
+        json[start..]
+            .find(&needle)
+            .map(|offset| start + offset)
+            .unwrap_or_else(|| panic!("missing JSON key {key} after {anchor}"))
+    };
+
+    assert!(
+        key_position_after("\"char_rolls\"", "DEX") < key_position_after("\"char_rolls\"", "STR")
+    );
+    assert!(
+        key_position_after("\"backstory\"", "Ideology & Beliefs")
+            < key_position_after("\"backstory\"", "Traits")
+    );
 }
 
 #[test]
