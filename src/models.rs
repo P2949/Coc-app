@@ -374,6 +374,55 @@ pub(crate) fn push_blank_line(out: &mut String) {
     out.push_str(LINE_SEP);
 }
 
+fn sorted_skill_name_delta<'a>(left: &HashSet<&'a str>, right: &HashSet<&'a str>) -> Vec<&'a str> {
+    let mut delta: Vec<&str> = left.difference(right).copied().collect();
+    delta.sort_unstable();
+    delta
+}
+
+fn format_skill_name_delta(names: &[&str]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+pub(crate) fn typed_skill_list_validation_errors(
+    label: &str,
+    string_list: &[&str],
+    typed_list: &[Skill],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    let string_names: HashSet<&str> = string_list.iter().copied().collect();
+    let typed_names: HashSet<&str> = typed_list.iter().map(|skill| skill.name()).collect();
+
+    if string_list.len() != string_names.len() {
+        errors.push(format!(
+            "{label} string skill list contains duplicate entries"
+        ));
+    }
+
+    if typed_list.len() != typed_names.len() {
+        errors.push(format!(
+            "{label} typed skill list contains duplicate entries"
+        ));
+    }
+
+    if typed_names != string_names {
+        let missing = sorted_skill_name_delta(&string_names, &typed_names);
+        let extra = sorted_skill_name_delta(&typed_names, &string_names);
+        errors.push(format!(
+            "{label} typed skill list must match its string skill list \
+             (missing from typed list: {}; extra in typed list: {})",
+            format_skill_name_delta(&missing),
+            format_skill_name_delta(&extra)
+        ));
+    }
+
+    errors
+}
+
 pub(crate) fn skill_constant_validation_errors() -> Vec<String> {
     let mut errors = Vec::new();
     let spec_names: HashSet<&str> = SKILL_SPECS.iter().map(|skill| skill.name).collect();
@@ -431,6 +480,32 @@ pub(crate) fn skill_constant_validation_errors() -> Vec<String> {
                 .to_owned(),
         );
     }
+
+    errors.extend(typed_skill_list_validation_errors(
+        "OCCUPATION_SELECTABLE_SKILL_OPTIONS",
+        OCCUPATION_SELECTABLE_SKILLS,
+        OCCUPATION_SELECTABLE_SKILL_OPTIONS,
+    ));
+    errors.extend(typed_skill_list_validation_errors(
+        "ART_SKILL_OPTIONS",
+        ART_SKILLS,
+        ART_SKILL_OPTIONS,
+    ));
+    errors.extend(typed_skill_list_validation_errors(
+        "SCIENCE_SKILL_OPTIONS",
+        SCIENCE_SKILLS,
+        SCIENCE_SKILL_OPTIONS,
+    ));
+    errors.extend(typed_skill_list_validation_errors(
+        "INTERPERSONAL_SKILL_OPTIONS",
+        INTERPERSONAL_SKILLS,
+        INTERPERSONAL_SKILL_OPTIONS,
+    ));
+    errors.extend(typed_skill_list_validation_errors(
+        "FIREARMS_SKILL_OPTIONS",
+        FIREARMS_SKILLS,
+        FIREARMS_SKILL_OPTIONS,
+    ));
 
     for skill in ART_SKILLS {
         if !spec_names.contains(skill) {

@@ -1697,6 +1697,31 @@ fn skill_name_constants_match_skill_specs() {
 }
 
 #[test]
+fn runtime_skill_constant_validation_checks_typed_option_mirrors() {
+    assert!(skill_constant_validation_errors().is_empty());
+
+    let mismatch_errors = typed_skill_list_validation_errors(
+        "TEST_SKILL_OPTIONS",
+        &["Accounting", "Anthropology"],
+        &[Skill::Accounting, Skill::Climb],
+    );
+    assert!(mismatch_errors.iter().any(|error| {
+        error.contains("TEST_SKILL_OPTIONS typed skill list must match its string skill list")
+            && error.contains("Anthropology")
+            && error.contains("Climb")
+    }));
+
+    let duplicate_errors = typed_skill_list_validation_errors(
+        "TEST_DUPLICATE_OPTIONS",
+        &["Accounting", "Anthropology"],
+        &[Skill::Accounting, Skill::Accounting],
+    );
+    assert!(duplicate_errors.iter().any(|error| {
+        error.contains("TEST_DUPLICATE_OPTIONS typed skill list contains duplicate entries")
+    }));
+}
+
+#[test]
 fn skill_rows_carry_typed_skill_ids_matching_display_names() {
     let app = test_app();
     let math = app.sheet_math();
