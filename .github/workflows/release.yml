@@ -108,7 +108,10 @@ jobs:
           fi
 
           if [[ "${{ matrix.archive_ext }}" == "zip" ]]; then
-            7z a "dist/${APP_NAME}-${VERSION}-${{ matrix.artifact_suffix }}.zip" "$STAGING_DIR"
+            (
+              cd dist
+              7z a "${APP_NAME}-${VERSION}-${{ matrix.artifact_suffix }}.zip" "$(basename "$STAGING_DIR")"
+            )
           else
             tar -C dist -czf "dist/${APP_NAME}-${VERSION}-${{ matrix.artifact_suffix }}.tar.gz" "$(basename "$STAGING_DIR")"
           fi

@@ -1,6 +1,6 @@
 use eframe::egui::Color32;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Index;
@@ -545,6 +545,7 @@ pub(crate) struct EduCheckRoll {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SkillRow {
+    pub(crate) id: Skill,
     pub(crate) name: String,
     pub(crate) base: i32,
     pub(crate) occ_add: i32,
@@ -613,10 +614,58 @@ pub(crate) struct LuckState {
     pub(crate) rolls: Vec<DiceResult>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct AllocationState {
-    pub(crate) occupation_points: HashMap<String, i32>,
-    pub(crate) personal_points: HashMap<String, i32>,
+    pub(crate) occupation_points: HashMap<Skill, i32>,
+    pub(crate) personal_points: HashMap<Skill, i32>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableAllocationState {
+    occupation_points: HashMap<String, i32>,
+    personal_points: HashMap<String, i32>,
+}
+
+impl Serialize for AllocationState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let raw = SerializableAllocationState {
+            occupation_points: self
+                .occupation_points
+                .iter()
+                .map(|(skill, value)| (skill.name().to_owned(), *value))
+                .collect(),
+            personal_points: self
+                .personal_points
+                .iter()
+                .map(|(skill, value)| (skill.name().to_owned(), *value))
+                .collect(),
+        };
+        raw.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AllocationState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = SerializableAllocationState::deserialize(deserializer)?;
+        Ok(Self {
+            occupation_points: raw
+                .occupation_points
+                .into_iter()
+                .filter_map(|(skill, value)| Skill::from_name(&skill).map(|skill| (skill, value)))
+                .collect(),
+            personal_points: raw
+                .personal_points
+                .into_iter()
+                .filter_map(|(skill, value)| Skill::from_name(&skill).map(|skill| (skill, value)))
+                .collect(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

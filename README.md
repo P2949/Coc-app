@@ -2,6 +2,8 @@
 
 A native desktop helper for building Call of Cthulhu 7th Edition investigators.
 
+This is an unofficial fan-made character creation helper. It is not affiliated with, sponsored by, or endorsed by Chaosium Inc.
+
 The app is written in Rust with `eframe`/`egui`. It focuses on rules-aware investigator creation: characteristics, age adjustments, occupation choices, skill allocations, derived stats, backstory fields, JSON save/load for editable investigators, and a copyable summary.
 
 ## Current status

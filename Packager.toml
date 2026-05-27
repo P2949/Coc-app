@@ -5,8 +5,8 @@ product-name = "CoC7e Investigator Creator"
 identifier = "io.github.p2949.coc7e-investigator-creator"
 version = "0.1.0"
 
-description = "A desktop Call of Cthulhu 7th Edition investigator creator."
-long-description = "A native Rust desktop helper for building Call of Cthulhu 7th Edition investigators. It supports rules-aware characteristics, age adjustments, occupation choices, skill allocation, derived stats, backstory fields, and a copyable summary."
+description = "An unofficial desktop Call of Cthulhu 7th Edition investigator creator."
+long-description = "An unofficial fan-made native Rust desktop helper for building Call of Cthulhu 7th Edition investigators. It supports rules-aware characteristics, age adjustments, occupation choices, skill allocation, derived stats, backstory fields, and a copyable summary. Not affiliated with, sponsored by, or endorsed by Chaosium Inc."
 
 homepage = "https://github.com/P2949/Coc-app"
 authors = ["P2949"]

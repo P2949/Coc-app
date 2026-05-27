@@ -1,6 +1,6 @@
 use super::super::data::*;
 use super::super::models::*;
-use super::skill_accepts_personal_points;
+use crate::coc7e_app::allocations::skill_accepts_personal_points;
 use eframe::egui;
 use egui::RichText;
 
@@ -135,10 +135,8 @@ impl CoC7eApp {
                             for row in skill_rows {
                                 let can_occ = allowed_occ.contains(&row.name);
                                 let can_personal = skill_accepts_personal_points(&row.name);
-                                let occ_max =
-                                    (MAX_CREATION_VALUE - row.base - row.personal_add).max(0);
-                                let personal_max =
-                                    (MAX_CREATION_VALUE - row.base - row.occ_add).max(0);
+                                let occ_max = self.occupation_allocation_max_for(&row.name);
+                                let personal_max = self.personal_allocation_max_for(&row.name);
                                 let note = if row.name == "Credit Rating" {
                                     "occupation-only at creation"
                                 } else if row.name == "Cthulhu Mythos" {

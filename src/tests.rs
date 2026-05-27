@@ -523,26 +523,32 @@ fn prune_occupation_allocations_removes_skills_no_longer_allowed() {
         "Mechanical Repair".to_owned(),
     );
 
+    app.allocations.occupation_points.insert(Skill::Climb, 20);
     app.allocations
         .occupation_points
-        .insert("Climb".to_owned(), 20);
+        .insert(Skill::Accounting, 20);
     app.allocations
         .occupation_points
-        .insert("Accounting".to_owned(), 20);
-    app.allocations
-        .occupation_points
-        .insert("Credit Rating".to_owned(), 10);
+        .insert(Skill::CreditRating, 10);
 
     app.occupation_choices
         .insert(ChoiceKey::new("soldier-climb-swim", 0), "Swim".to_owned());
     app.prune_occupation_allocations();
 
-    assert!(!app.allocations.occupation_points.contains_key("Climb"));
-    assert!(!app.allocations.occupation_points.contains_key("Accounting"));
+    assert!(
+        !app.allocations
+            .occupation_points
+            .contains_key(&Skill::Climb)
+    );
+    assert!(
+        !app.allocations
+            .occupation_points
+            .contains_key(&Skill::Accounting)
+    );
     assert!(
         app.allocations
             .occupation_points
-            .contains_key("Credit Rating")
+            .contains_key(&Skill::CreditRating)
     );
 }
 
@@ -551,10 +557,10 @@ fn prune_occupation_allocations_removes_credit_rating_without_occupation() {
     let mut app = test_app();
     app.allocations
         .occupation_points
-        .insert("Credit Rating".to_owned(), 10);
+        .insert(Skill::CreditRating, 10);
     app.allocations
         .occupation_points
-        .insert("Library Use".to_owned(), 20);
+        .insert(Skill::LibraryUse, 20);
 
     assert!(app.sheet_math().occupation_skill_set.is_empty());
 
@@ -568,28 +574,28 @@ fn prune_personal_allocations_removes_credit_rating_and_mythos() {
     let mut app = test_app();
     app.allocations
         .personal_points
-        .insert("Credit Rating".to_owned(), 10);
+        .insert(Skill::CreditRating, 10);
     app.allocations
         .personal_points
-        .insert("Cthulhu Mythos".to_owned(), 10);
+        .insert(Skill::CthulhuMythos, 10);
     app.allocations
         .personal_points
-        .insert("Library Use".to_owned(), 10);
+        .insert(Skill::LibraryUse, 10);
 
     app.prune_personal_allocations();
 
     assert!(
         !app.allocations
             .personal_points
-            .contains_key("Credit Rating")
+            .contains_key(&Skill::CreditRating)
     );
     assert!(
         !app.allocations
             .personal_points
-            .contains_key("Cthulhu Mythos")
+            .contains_key(&Skill::CthulhuMythos)
     );
     assert_eq!(
-        app.allocations.personal_points.get("Library Use"),
+        app.allocations.personal_points.get(&Skill::LibraryUse),
         Some(&10)
     );
 }
@@ -612,13 +618,13 @@ fn personal_allocation_math_ignores_reserved_skills_before_pruning() {
     );
     app.allocations
         .personal_points
-        .insert("Credit Rating".to_owned(), 10);
+        .insert(Skill::CreditRating, 10);
     app.allocations
         .personal_points
-        .insert("Cthulhu Mythos".to_owned(), 10);
+        .insert(Skill::CthulhuMythos, 10);
     app.allocations
         .personal_points
-        .insert("Library Use".to_owned(), 10);
+        .insert(Skill::LibraryUse, 10);
 
     let math = app.sheet_math();
     let credit_rating = math
@@ -657,13 +663,13 @@ fn occupation_allocation_math_ignores_disallowed_skills_before_pruning() {
     resolve_nurse_choice(&mut app);
     app.allocations
         .occupation_points
-        .insert("First Aid".to_owned(), 10);
+        .insert(Skill::FirstAid, 10);
     app.allocations
         .occupation_points
-        .insert("Credit Rating".to_owned(), 5);
+        .insert(Skill::CreditRating, 5);
     app.allocations
         .occupation_points
-        .insert("Library Use".to_owned(), 50);
+        .insert(Skill::LibraryUse, 50);
 
     let math = app.sheet_math();
     let first_aid = math
@@ -687,7 +693,7 @@ fn credit_rating_ignores_stale_occupation_points_without_occupation() {
     let mut app = test_app();
     app.allocations
         .occupation_points
-        .insert("Credit Rating".to_owned(), 50);
+        .insert(Skill::CreditRating, 50);
 
     assert!(app.sheet_math().occupation_skill_set.is_empty());
     assert_eq!(app.used_occupation_points(), 0);
@@ -743,13 +749,13 @@ fn allocation_math_sanitizes_stale_allowed_values() {
     resolve_nurse_choice(&mut app);
     app.allocations
         .occupation_points
-        .insert("First Aid".to_owned(), 500);
+        .insert(Skill::FirstAid, 500);
     app.allocations
         .personal_points
-        .insert("Library Use".to_owned(), 500);
+        .insert(Skill::LibraryUse, 500);
     app.allocations
         .personal_points
-        .insert("Spot Hidden".to_owned(), -20);
+        .insert(Skill::SpotHidden, -20);
 
     let math = app.sheet_math();
     let first_aid = math
@@ -800,16 +806,16 @@ fn prune_allocation_sanitizers_rewrite_stale_allowed_values() {
     resolve_nurse_choice(&mut app);
     app.allocations
         .occupation_points
-        .insert("First Aid".to_owned(), 500);
+        .insert(Skill::FirstAid, 500);
     app.allocations
         .occupation_points
-        .insert("Library Use".to_owned(), 500);
+        .insert(Skill::LibraryUse, 500);
     app.allocations
         .personal_points
-        .insert("Library Use".to_owned(), 500);
+        .insert(Skill::LibraryUse, 500);
     app.allocations
         .personal_points
-        .insert("Spot Hidden".to_owned(), -20);
+        .insert(Skill::SpotHidden, -20);
 
     app.prune_occupation_allocations();
 
@@ -826,19 +832,23 @@ fn prune_allocation_sanitizers_rewrite_stale_allowed_values() {
         .expect("Library Use row should exist");
 
     assert_eq!(
-        app.allocations.occupation_points.get("First Aid"),
+        app.allocations.occupation_points.get(&Skill::FirstAid),
         Some(&first_aid.occ_add)
     );
     assert!(
         !app.allocations
             .occupation_points
-            .contains_key("Library Use")
+            .contains_key(&Skill::LibraryUse)
     );
     assert_eq!(
-        app.allocations.personal_points.get("Library Use"),
+        app.allocations.personal_points.get(&Skill::LibraryUse),
         Some(&library_use.personal_add)
     );
-    assert!(!app.allocations.personal_points.contains_key("Spot Hidden"));
+    assert!(
+        !app.allocations
+            .personal_points
+            .contains_key(&Skill::SpotHidden)
+    );
 }
 
 #[test]
@@ -877,16 +887,124 @@ fn allocation_setters_derive_caps_instead_of_trusting_callers() {
 }
 
 #[test]
+fn manual_occupation_allocations_cannot_exceed_total_budget() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+
+    let mut skills: Vec<String> = app
+        .sheet_math()
+        .occupation_skill_set
+        .iter()
+        .cloned()
+        .collect();
+    skills.sort();
+
+    for skill in skills {
+        app.set_occupation_allocation(&skill, 500);
+        let math = app.sheet_math();
+        assert!(
+            CoC7eApp::used_occupation_points_from(&math.skill_rows) <= math.occupation_budget,
+            "manual occupation allocation overspent after assigning {skill}"
+        );
+    }
+}
+
+#[test]
+fn manual_personal_allocations_cannot_exceed_total_budget() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+
+    for skill in ALL_SKILL_NAMES {
+        app.set_personal_allocation(skill, 500);
+        let math = app.sheet_math();
+        assert!(
+            CoC7eApp::used_personal_points_from(&math.skill_rows) <= math.personal_budget,
+            "manual personal allocation overspent after assigning {skill}"
+        );
+    }
+}
+
+#[test]
+fn sanitize_allocations_trims_imported_values_to_total_budgets() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut app);
+
+    for skill in app.sheet_math().occupation_skill_set {
+        let skill = Skill::from_name(&skill).expect("occupation skill should be known");
+        app.allocations.occupation_points.insert(skill, 99);
+    }
+    for skill in ALL_SKILL_NAMES {
+        let skill = Skill::from_name(skill).expect("skill constant should be known");
+        app.allocations.personal_points.insert(skill, 99);
+    }
+
+    app.sanitize_allocations();
+
+    let math = app.sheet_math();
+    assert!(CoC7eApp::used_occupation_points_from(&math.skill_rows) <= math.occupation_budget);
+    assert!(CoC7eApp::used_personal_points_from(&math.skill_rows) <= math.personal_budget);
+    assert!(
+        math.skill_rows
+            .iter()
+            .all(|row| row.total <= MAX_CREATION_VALUE)
+    );
+}
+
+#[test]
 fn allocation_setters_remove_ineligible_skills() {
     let mut app = test_app();
     app.set_occupation_allocation("First Aid", 99);
     app.set_personal_allocation("Credit Rating", 99);
 
-    assert!(!app.allocations.occupation_points.contains_key("First Aid"));
+    assert!(
+        !app.allocations
+            .occupation_points
+            .contains_key(&Skill::FirstAid)
+    );
     assert!(
         !app.allocations
             .personal_points
-            .contains_key("Credit Rating")
+            .contains_key(&Skill::CreditRating)
     );
 }
 
@@ -917,15 +1035,13 @@ fn sanitize_state_cleans_imported_boundary_state() {
         ChoiceKey::new("nurse-interpersonal", 0),
         "Persuade".to_owned(),
     );
+    app.allocations.occupation_points.insert(Skill::Dodge, 500);
     app.allocations
         .occupation_points
-        .insert("Dodge".to_owned(), 500);
-    app.allocations
-        .occupation_points
-        .insert("Library Use".to_owned(), 500);
+        .insert(Skill::LibraryUse, 500);
     app.allocations
         .personal_points
-        .insert("Library Use".to_owned(), 500);
+        .insert(Skill::LibraryUse, 500);
 
     app.sanitize_state();
 
@@ -944,15 +1060,19 @@ fn sanitize_state_cleans_imported_boundary_state() {
     );
     assert!(app.occupation_choices.is_empty());
     assert_eq!(
-        app.allocations.occupation_points.get("Dodge"),
+        app.allocations.occupation_points.get(&Skill::Dodge),
         Some(&dodge_occ_add)
     );
     assert!(
         !app.allocations
             .occupation_points
-            .contains_key("Library Use")
+            .contains_key(&Skill::LibraryUse)
     );
-    assert!(app.allocations.personal_points.contains_key("Library Use"));
+    assert!(
+        app.allocations
+            .personal_points
+            .contains_key(&Skill::LibraryUse)
+    );
 }
 
 #[test]
@@ -1199,7 +1319,7 @@ fn quick_skill_package_sets_credit_rating_to_occupation_minimum() {
     app.apply_quick_skill_package();
 
     assert_eq!(
-        app.allocations.occupation_points.get("Credit Rating"),
+        app.allocations.occupation_points.get(&Skill::CreditRating),
         Some(&9)
     );
     assert!(app.credit_rating() <= 30);
@@ -1557,6 +1677,16 @@ fn skill_name_constants_match_skill_specs() {
             "unknown firearms skill: {skill}"
         );
         assert!(skill.starts_with("Firearms"));
+    }
+}
+
+#[test]
+fn skill_rows_carry_typed_skill_ids_matching_display_names() {
+    let app = test_app();
+    let math = app.sheet_math();
+
+    for row in math.skill_rows {
+        assert_eq!(row.id.name(), row.name);
     }
 }
 
@@ -2007,11 +2137,11 @@ fn json_save_round_trips_editable_investigator_state() {
         Some("Persuade")
     );
     assert_eq!(
-        loaded.allocations.occupation_points.get("First Aid"),
+        loaded.allocations.occupation_points.get(&Skill::FirstAid),
         Some(&20)
     );
     assert_eq!(
-        loaded.allocations.personal_points.get("Accounting"),
+        loaded.allocations.personal_points.get(&Skill::Accounting),
         Some(&15)
     );
     assert_eq!(loaded.luck_state.value, Some(55));
@@ -2019,6 +2149,23 @@ fn json_save_round_trips_editable_investigator_state() {
         loaded.backstory.get("Traits").map(String::as_str),
         Some("Writes everything down.")
     );
+}
+
+#[test]
+fn json_import_reports_unsupported_future_save_versions() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should be valid JSON");
+    value["version"] = serde_json::Value::from((INVESTIGATOR_SAVE_VERSION + 1) as u64);
+
+    let mut loaded = test_app();
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let error = loaded
+        .import_json_save(&edited_json)
+        .expect_err("future save versions should be rejected");
+
+    assert!(error.contains("unsupported save version"));
 }
 
 #[test]

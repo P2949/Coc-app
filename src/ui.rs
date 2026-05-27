@@ -1,3 +1,4 @@
+use super::allocations::{sanitized_allocation_value, skill_accepts_occupation_points};
 use super::data::*;
 use super::models::*;
 use super::occupations::*;
@@ -40,26 +41,6 @@ fn adjusted_final_characteristic(raw: i32, delta: i32) -> i32 {
     } else {
         (raw + delta).clamp(1, MAX_CREATION_VALUE)
     }
-}
-
-fn skill_accepts_personal_points(skill: &str) -> bool {
-    skill != "Credit Rating" && skill != "Cthulhu Mythos"
-}
-
-fn skill_accepts_occupation_points(skill: &str, allowed: &HashSet<String>) -> bool {
-    allowed.contains(skill)
-}
-
-fn sanitized_allocation_value(
-    allocations: &HashMap<String, i32>,
-    skill: &str,
-    max_value: i32,
-) -> i32 {
-    allocations
-        .get(skill)
-        .copied()
-        .unwrap_or(0)
-        .clamp(0, max_value.clamp(0, MAX_CREATION_VALUE))
 }
 
 fn dice_result_matches_kind(result: &DiceResult, kind: DiceKind) -> bool {
@@ -126,115 +107,6 @@ impl CoC7eApp {
             frame_max_reachable_step: 2,
             rng: AppRng::seeded(rng_state),
         }
-    }
-
-    pub(crate) fn save_file(&self) -> InvestigatorSaveFile {
-        let mut occupation_choices: Vec<SavedOccupationChoice> = self
-            .occupation_choices
-            .iter()
-            .map(|(key, value)| SavedOccupationChoice {
-                id: key.id.clone(),
-                index: key.index,
-                value: value.clone(),
-            })
-            .collect();
-        occupation_choices.sort_by(|left, right| {
-            left.id
-                .cmp(&right.id)
-                .then_with(|| left.index.cmp(&right.index))
-        });
-
-        InvestigatorSaveFile {
-            version: INVESTIGATOR_SAVE_VERSION,
-            concept: self.concept.clone(),
-            char_method: self.char_method,
-            chars: self.chars.clone(),
-            char_rolls: self.char_rolls.clone(),
-            luck_state: self.luck_state.clone(),
-            age_deductions: self.age_deductions.clone(),
-            edu_bonus: self.edu_bonus,
-            edu_check_rolls: self.edu_check_rolls.clone(),
-            occupation_id: self.occupation_id.clone(),
-            formula_key: self.formula_key,
-            occupation_choices,
-            custom_occupation: self.custom_occupation.clone(),
-            allocations: self.allocations.clone(),
-            backstory: self.backstory.clone(),
-        }
-    }
-
-    pub(crate) fn export_json_save(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(&self.save_file())
-    }
-
-    pub(crate) fn import_json_save(&mut self, input: &str) -> Result<(), String> {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            return Err("paste a JSON save before loading".to_owned());
-        }
-
-        let save: InvestigatorSaveFile = serde_json::from_str(trimmed)
-            .map_err(|error| format!("could not parse JSON save: {error}"))?;
-
-        if save.version != INVESTIGATOR_SAVE_VERSION {
-            return Err(format!(
-                "unsupported save version {}; this app supports version {INVESTIGATOR_SAVE_VERSION}",
-                save.version
-            ));
-        }
-
-        self.concept = save.concept;
-        self.concept.age = self.concept.age.clamp(15, 89);
-        self.last_age_bracket_index = get_age_bracket_index(self.concept.age);
-        self.char_method = save.char_method;
-        self.chars = save.chars;
-        self.char_rolls = save.char_rolls;
-        self.luck_state = save.luck_state;
-        self.age_deductions = save.age_deductions;
-        self.edu_bonus = save.edu_bonus.clamp(0, MAX_CREATION_VALUE);
-        self.edu_check_rolls = save.edu_check_rolls;
-        self.occupation_id = if save.occupation_id == CUSTOM_OCCUPATION_ID
-            || self
-                .occupations
-                .iter()
-                .any(|occupation| occupation.name == save.occupation_id)
-        {
-            save.occupation_id
-        } else {
-            String::new()
-        };
-        self.formula_key = save.formula_key;
-        self.occupation_choices = save
-            .occupation_choices
-            .into_iter()
-            .filter_map(|choice| {
-                let value = choice.value.trim().to_owned();
-                if value.is_empty() {
-                    None
-                } else {
-                    Some((ChoiceKey::new(choice.id, choice.index), value))
-                }
-            })
-            .collect();
-        self.custom_occupation = save.custom_occupation;
-        self.allocations = save.allocations;
-        let allowed_backstory: HashSet<&str> = BACKSTORY_CATEGORIES.iter().copied().collect();
-        self.backstory = save
-            .backstory
-            .into_iter()
-            .filter_map(|(category, value)| {
-                let category = category.trim();
-                if !allowed_backstory.contains(category) || value.trim().is_empty() {
-                    None
-                } else {
-                    Some((category.to_owned(), value))
-                }
-            })
-            .collect();
-
-        self.sanitize_state();
-        self.refresh_reachability();
-        Ok(())
     }
 
     pub(crate) fn sync_age_bracket(&mut self) {
@@ -720,96 +592,6 @@ impl CoC7eApp {
             .saturating_sub(self.resolved_occupation_skills_for(occupation).len())
     }
 
-    pub(crate) fn skill_rows_for(
-        &self,
-        final_chars: &CharacteristicValues,
-        occupation_skill_set: &HashSet<String>,
-    ) -> Vec<SkillRow> {
-        SKILL_SPECS
-            .iter()
-            .map(|skill| {
-                let base = get_base_skill(skill.name, final_chars);
-                let occ_add = if skill_accepts_occupation_points(skill.name, occupation_skill_set) {
-                    sanitized_allocation_value(
-                        &self.allocations.occupation_points,
-                        skill.name,
-                        MAX_CREATION_VALUE - base,
-                    )
-                } else {
-                    0
-                };
-                let personal_add = if skill_accepts_personal_points(skill.name) {
-                    sanitized_allocation_value(
-                        &self.allocations.personal_points,
-                        skill.name,
-                        MAX_CREATION_VALUE - base - occ_add,
-                    )
-                } else {
-                    0
-                };
-                SkillRow {
-                    name: skill.name.to_owned(),
-                    base,
-                    occ_add,
-                    personal_add,
-                    total: base + occ_add + personal_add,
-                }
-            })
-            .collect()
-    }
-
-    pub(crate) fn derived_for(
-        &self,
-        final_chars: &CharacteristicValues,
-        skill_rows: &[SkillRow],
-    ) -> Derived {
-        let mythos = skill_rows
-            .iter()
-            .find(|row| row.name == "Cthulhu Mythos")
-            .map(|row| row.total)
-            .unwrap_or(0);
-        calculate_derived(final_chars, self.age_bracket(), mythos)
-    }
-
-    pub(crate) fn sheet_math(&self) -> SheetMath {
-        self.sheet_math_from(self.final_chars())
-    }
-
-    pub(crate) fn sheet_math_from(&self, final_chars: CharacteristicValues) -> SheetMath {
-        let selected_occupation = self.selected_occupation();
-        let occupation_skill_set = self.occupation_skill_set_for(selected_occupation.as_ref());
-        let skill_rows = self.skill_rows_for(&final_chars, &occupation_skill_set);
-        let derived = self.derived_for(&final_chars, &skill_rows);
-        let credit_range = selected_occupation
-            .as_ref()
-            .map_or((0, 99), |occupation| occupation.credit);
-        let unresolved_choices = selected_occupation
-            .as_ref()
-            .map_or(0, |occupation| self.unresolved_choice_count_for(occupation));
-        let occupation_shortfall = selected_occupation.as_ref().map_or(0, |occupation| {
-            self.unique_occupation_shortfall_for(occupation)
-        });
-        let occupation_budget = self
-            .active_formula_key_for(selected_occupation.as_ref())
-            .calculate(&final_chars);
-        let personal_budget = self.personal_budget_for(&final_chars);
-        let credit_rating = self.credit_rating_for_with_skills(&final_chars, &occupation_skill_set);
-
-        SheetMath {
-            final_chars,
-            skill_rows,
-            derived,
-            selected_occupation,
-            credit_range,
-            unresolved_choices,
-            occupation_shortfall,
-            occupation_skill_set,
-            occupation_budget,
-            personal_budget,
-            credit_rating,
-        }
-    }
-
     pub(crate) fn point_buy_spent(&self) -> i32 {
         CHARACTERISTICS
             .iter()
@@ -1036,24 +818,6 @@ impl CoC7eApp {
         self.formula_key = self.active_formula_key_for(occupation);
     }
 
-    pub(crate) fn sanitize_allocations(&mut self) {
-        let skill_rows = self.sheet_math().skill_rows;
-        let mut occupation_points = HashMap::new();
-        let mut personal_points = HashMap::new();
-
-        for row in skill_rows {
-            if row.occ_add > 0 {
-                occupation_points.insert(row.name.clone(), row.occ_add);
-            }
-            if row.personal_add > 0 {
-                personal_points.insert(row.name, row.personal_add);
-            }
-        }
-
-        self.allocations.occupation_points = occupation_points;
-        self.allocations.personal_points = personal_points;
-    }
-
     pub(crate) fn sanitize_state(&mut self) {
         self.sanitize_custom_occupation();
         let selected_occupation = self.selected_occupation();
@@ -1073,94 +837,6 @@ impl CoC7eApp {
         self.sanitize_allocations();
     }
 
-    pub(crate) fn personal_budget_for(&self, final_chars: &CharacteristicValues) -> i32 {
-        final_chars.get_char(Characteristic::Int) * 2
-    }
-
-    pub(crate) fn used_occupation_points_from(skill_rows: &[SkillRow]) -> i32 {
-        skill_rows.iter().map(|row| row.occ_add).sum()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn used_occupation_points(&self) -> i32 {
-        Self::used_occupation_points_from(&self.sheet_math().skill_rows)
-    }
-
-    pub(crate) fn used_personal_points_from(skill_rows: &[SkillRow]) -> i32 {
-        skill_rows.iter().map(|row| row.personal_add).sum()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn used_personal_points(&self) -> i32 {
-        Self::used_personal_points_from(&self.sheet_math().skill_rows)
-    }
-
-    pub(crate) fn clear_occupation_allocations(&mut self) {
-        self.allocations.occupation_points.clear();
-    }
-
-    pub(crate) fn clear_personal_allocations(&mut self) {
-        self.allocations.personal_points.clear();
-    }
-
-    fn allocation_row_for<'a>(math: &'a SheetMath, skill: &str) -> Option<&'a SkillRow> {
-        math.skill_rows.iter().find(|row| row.name == skill)
-    }
-
-    pub(crate) fn occupation_allocation_max_for(&self, skill: &str) -> i32 {
-        let math = self.sheet_math();
-        let Some(row) = Self::allocation_row_for(&math, skill) else {
-            return 0;
-        };
-        if math.selected_occupation.is_none()
-            || !skill_accepts_occupation_points(skill, &math.occupation_skill_set)
-        {
-            return 0;
-        }
-
-        (MAX_CREATION_VALUE - row.base - row.personal_add).max(0)
-    }
-
-    pub(crate) fn personal_allocation_max_for(&self, skill: &str) -> i32 {
-        let math = self.sheet_math();
-        let Some(row) = Self::allocation_row_for(&math, skill) else {
-            return 0;
-        };
-        if !skill_accepts_personal_points(skill) {
-            return 0;
-        }
-
-        (MAX_CREATION_VALUE - row.base - row.occ_add).max(0)
-    }
-
-    pub(crate) fn set_occupation_allocation(&mut self, skill: &str, value: i32) {
-        let max_value = self.occupation_allocation_max_for(skill);
-        if max_value > 0 {
-            set_allocation(
-                &mut self.allocations.occupation_points,
-                skill,
-                value,
-                max_value,
-            );
-        } else {
-            self.allocations.occupation_points.remove(skill);
-        }
-    }
-
-    pub(crate) fn set_personal_allocation(&mut self, skill: &str, value: i32) {
-        let max_value = self.personal_allocation_max_for(skill);
-        if max_value > 0 {
-            set_allocation(
-                &mut self.allocations.personal_points,
-                skill,
-                value,
-                max_value,
-            );
-        } else {
-            self.allocations.personal_points.remove(skill);
-        }
-    }
-
     #[cfg(test)]
     pub(crate) fn credit_rating(&self) -> i32 {
         let final_chars = self.final_chars();
@@ -1178,7 +854,7 @@ impl CoC7eApp {
             if skill_accepts_occupation_points("Credit Rating", occupation_skill_set) {
                 sanitized_allocation_value(
                     &self.allocations.occupation_points,
-                    "Credit Rating",
+                    Skill::CreditRating,
                     MAX_CREATION_VALUE - get_base_skill("Credit Rating", final_chars),
                 )
             } else {
@@ -1434,7 +1110,7 @@ impl CoC7eApp {
             let credit_add = occupation.credit.0.min(remaining_budget).min(credit_cap);
 
             if credit_add > 0 {
-                next.insert("Credit Rating".to_owned(), credit_add);
+                next.insert(Skill::CreditRating, credit_add);
                 remaining_budget -= credit_add;
             }
         }
@@ -1445,18 +1121,20 @@ impl CoC7eApp {
             }
 
             let base = get_base_skill(skill, &final_chars);
+            let skill_id =
+                Skill::from_name(skill).expect("resolved occupation skill should be known");
             let personal_add = sanitized_allocation_value(
                 &self.allocations.personal_points,
-                skill,
+                skill_id,
                 MAX_CREATION_VALUE - base,
             );
-            let current_add = next.get(skill).copied().unwrap_or(0);
+            let current_add = next.get(&skill_id).copied().unwrap_or(0);
             let skill_cap = (MAX_CREATION_VALUE - base - personal_add - current_add).max(0);
             let target_add = (target - base - current_add).max(0);
             let add = target_add.min(skill_cap).min(remaining_budget);
 
             if add > 0 {
-                *next.entry(skill.clone()).or_insert(0) += add;
+                *next.entry(skill_id).or_insert(0) += add;
                 remaining_budget -= add;
             }
         }
@@ -1467,17 +1145,19 @@ impl CoC7eApp {
             }
 
             let base = get_base_skill(skill, &final_chars);
+            let skill_id =
+                Skill::from_name(skill).expect("resolved occupation skill should be known");
             let personal_add = sanitized_allocation_value(
                 &self.allocations.personal_points,
-                skill,
+                skill_id,
                 MAX_CREATION_VALUE - base,
             );
-            let current_add = next.get(skill).copied().unwrap_or(0);
+            let current_add = next.get(&skill_id).copied().unwrap_or(0);
             let skill_cap = (MAX_CREATION_VALUE - base - personal_add - current_add).max(0);
             let add = skill_cap.min(remaining_budget);
 
             if add > 0 {
-                *next.entry(skill.clone()).or_insert(0) += add;
+                *next.entry(skill_id).or_insert(0) += add;
                 remaining_budget -= add;
             }
         }
@@ -1542,7 +1222,7 @@ impl CoC7eApp {
         ui.vertical_centered(|ui| {
             ui.add_space(12.0);
             ui.label(
-                RichText::new("Chaosium · Call of Cthulhu 7th Edition")
+                RichText::new("Call of Cthulhu 7th Edition · Unofficial helper")
                     .size(11.0)
                     .color(FAINT)
                     .strong(),
@@ -1554,7 +1234,7 @@ impl CoC7eApp {
                     .strong(),
             );
             ui.label(
-                RichText::new("Rules-aware character creation helper")
+                RichText::new("Unofficial fan-made rules-aware character creation helper")
                     .size(14.0)
                     .color(MUTED),
             );

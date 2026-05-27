@@ -262,11 +262,7 @@ pub(crate) fn characteristic_value(chars: &CharacteristicValues, key: Characteri
     chars.get_char(key)
 }
 
-pub(crate) fn get_base_skill(skill_name: &str, chars: &CharacteristicValues) -> i32 {
-    let skill_id = Skill::from_name(skill_name).unwrap_or_else(|| {
-        panic!("unknown skill name `{skill_name}`; occupation data should be validated at startup")
-    });
-
+pub(crate) fn get_base_skill_for(skill_id: Skill, chars: &CharacteristicValues) -> i32 {
     let spec = SKILL_SPECS
         .iter()
         .find(|skill| skill.id == skill_id)
@@ -277,6 +273,14 @@ pub(crate) fn get_base_skill(skill_name: &str, chars: &CharacteristicValues) -> 
         SkillBase::HalfDex => floor_half(characteristic_value(chars, Characteristic::Dex)),
         SkillBase::Edu => characteristic_value(chars, Characteristic::Edu),
     }
+}
+
+pub(crate) fn get_base_skill(skill_name: &str, chars: &CharacteristicValues) -> i32 {
+    let skill_id = Skill::from_name(skill_name).unwrap_or_else(|| {
+        panic!("unknown skill name `{skill_name}`; occupation data should be validated at startup")
+    });
+
+    get_base_skill_for(skill_id, chars)
 }
 
 pub(crate) fn calculate_derived(
@@ -338,17 +342,17 @@ pub(crate) fn calculate_derived(
 }
 
 pub(crate) fn set_allocation(
-    map: &mut HashMap<String, i32>,
-    skill: &str,
+    map: &mut HashMap<Skill, i32>,
+    skill: Skill,
     value: i32,
     max_value: i32,
 ) {
     let value = value.clamp(0, max_value.clamp(0, MAX_CREATION_VALUE));
 
     if value == 0 {
-        map.remove(skill);
+        map.remove(&skill);
     } else {
-        map.insert(skill.to_owned(), value);
+        map.insert(skill, value);
     }
 }
 
