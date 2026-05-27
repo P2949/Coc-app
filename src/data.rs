@@ -1,7 +1,11 @@
 use eframe::egui::Color32;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{HashMap, HashSet};
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{Error as DeError, MapAccess, SeqAccess, Visitor},
+    ser::SerializeMap,
+};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::ops::Index;
 
@@ -112,7 +116,21 @@ impl Characteristic {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) const CHARACTERISTIC_SAVE_KEYS: &[Characteristic; Characteristic::COUNT] = &[
+    Characteristic::Str,
+    Characteristic::Con,
+    Characteristic::Siz,
+    Characteristic::Dex,
+    Characteristic::App,
+    Characteristic::Int,
+    Characteristic::Pow,
+    Characteristic::Edu,
+];
+
+pub(crate) const CHARACTERISTIC_SAVE_FIELD_NAMES: &[&str] =
+    &["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CharacteristicValues {
     pub(crate) values: [i32; Characteristic::COUNT],
 }
@@ -122,6 +140,74 @@ impl Default for CharacteristicValues {
         Self {
             values: [0; Characteristic::COUNT],
         }
+    }
+}
+
+impl Serialize for CharacteristicValues {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(Characteristic::COUNT))?;
+        for key in CHARACTERISTIC_SAVE_KEYS {
+            map.serialize_entry(key.key(), &self.get_char(*key))?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CharacteristicValues {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct CharacteristicValuesVisitor;
+
+        impl<'de> Visitor<'de> for CharacteristicValuesVisitor {
+            type Value = CharacteristicValues;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a characteristic map keyed by STR/CON/SIZ/DEX/APP/INT/POW/EDU or a legacy ordered array")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut values = [0; Characteristic::COUNT];
+                for value in &mut values {
+                    *value = seq
+                        .next_element()?
+                        .ok_or_else(|| DeError::invalid_length(Characteristic::COUNT, &self))?;
+                }
+                Ok(CharacteristicValues { values })
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut out = CharacteristicValues::default();
+                let mut seen = [false; Characteristic::COUNT];
+
+                while let Some((key, value)) = map.next_entry::<String, i32>()? {
+                    let characteristic =
+                        Characteristic::from_key(key.as_str()).ok_or_else(|| {
+                            DeError::unknown_field(key.as_str(), CHARACTERISTIC_SAVE_FIELD_NAMES)
+                        })?;
+                    let index = characteristic.index();
+                    if seen[index] {
+                        return Err(DeError::duplicate_field(characteristic.key()));
+                    }
+                    seen[index] = true;
+                    out.set_char(characteristic, value);
+                }
+
+                Ok(out)
+            }
+        }
+
+        deserializer.deserialize_any(CharacteristicValuesVisitor)
     }
 }
 
@@ -413,6 +499,18 @@ impl Skill {
     }
 }
 
+impl From<&str> for Skill {
+    fn from(value: &str) -> Self {
+        Self::from_name(value).unwrap_or_else(|| panic!("unknown skill name `{value}`"))
+    }
+}
+
+impl From<String> for Skill {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum SkillBase {
     Fixed(i32),
@@ -468,11 +566,11 @@ impl FormulaKey {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Slot {
-    Skill(String),
+    Skill(Skill),
     Choice {
         id: String,
         label: String,
-        options: Vec<String>,
+        options: Vec<Skill>,
         count: usize,
     },
 }
@@ -575,7 +673,7 @@ pub(crate) struct SheetMath {
     pub(crate) credit_range: (i32, i32),
     pub(crate) unresolved_choices: usize,
     pub(crate) occupation_shortfall: usize,
-    pub(crate) occupation_skill_set: HashSet<String>,
+    pub(crate) occupation_skill_set: HashSet<Skill>,
     pub(crate) occupation_budget: i32,
     pub(crate) personal_budget: i32,
     pub(crate) credit_rating: i32,
@@ -622,8 +720,8 @@ pub(crate) struct AllocationState {
 
 #[derive(Serialize, Deserialize)]
 struct SerializableAllocationState {
-    occupation_points: HashMap<String, i32>,
-    personal_points: HashMap<String, i32>,
+    occupation_points: BTreeMap<String, i32>,
+    personal_points: BTreeMap<String, i32>,
 }
 
 impl Serialize for AllocationState {

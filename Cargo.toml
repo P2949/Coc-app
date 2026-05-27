@@ -2,7 +2,7 @@
 name = "coc7e_investigator_creator"
 version = "0.1.0"
 edition = "2024"
-description = "A desktop Call of Cthulhu 7th Edition investigator creator."
+description = "An unofficial desktop Call of Cthulhu 7th Edition investigator creator."
 repository = "https://github.com/P2949/Coc-app"
 readme = "README.md"
 license = "GPL-3.0-or-later"

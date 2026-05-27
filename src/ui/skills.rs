@@ -133,7 +133,7 @@ impl CoC7eApp {
                             ui.end_row();
 
                             for row in skill_rows {
-                                let can_occ = allowed_occ.contains(&row.name);
+                                let can_occ = allowed_occ.contains(&row.id);
                                 let can_personal = skill_accepts_personal_points(&row.name);
                                 let occ_max = self.occupation_allocation_max_for(&row.name);
                                 let personal_max = self.personal_allocation_max_for(&row.name);

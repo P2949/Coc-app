@@ -1,5 +1,4 @@
 use super::data::*;
-use super::ruleset::*;
 use std::collections::HashSet;
 
 pub(crate) const ALL_SKILL_NAMES: &[&str] = &[
@@ -163,8 +162,15 @@ pub(crate) const SCIENCE_SKILLS: &[&str] = &[
 pub(crate) const INTERPERSONAL_SKILLS: &[&str] = &["Charm", "Fast Talk", "Intimidate", "Persuade"];
 pub(crate) const FIREARMS_SKILLS: &[&str] = &["Firearms (Handgun)", "Firearms (Rifle/Shotgun)"];
 
-pub(crate) fn skill_options(options: &[&str]) -> Vec<String> {
-    options.iter().map(|skill| (*skill).to_owned()).collect()
+pub(crate) fn skill_options(options: &[&str]) -> Vec<Skill> {
+    options
+        .iter()
+        .map(|skill| {
+            Skill::from_name(skill).unwrap_or_else(|| {
+                panic!("unknown occupation skill option `{skill}` in built-in occupation data")
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn occupation_selectable_skills() -> &'static [&'static str] {
@@ -188,14 +194,19 @@ pub(crate) fn firearms_skills() -> &'static [&'static str] {
 }
 
 pub(crate) fn fixed(name: &str) -> Slot {
-    Slot::Skill(name.to_owned())
+    let skill =
+        Skill::from_name(name).unwrap_or_else(|| panic!("unknown fixed occupation skill `{name}`"));
+    Slot::Skill(skill)
 }
 
-pub(crate) fn choice(id: &str, label: &str, options: Vec<String>, count: usize) -> Slot {
+pub(crate) fn choice<T>(id: &str, label: &str, options: Vec<T>, count: usize) -> Slot
+where
+    T: Into<Skill>,
+{
     Slot::Choice {
         id: id.to_owned(),
         label: label.to_owned(),
-        options,
+        options: options.into_iter().map(Into::into).collect(),
         count,
     }
 }
@@ -231,12 +242,12 @@ pub(crate) fn occupation(
     }
 }
 
-pub(crate) fn fixed_skill_set_for(occupation: &Occupation) -> HashSet<&str> {
+pub(crate) fn fixed_skill_set_for(occupation: &Occupation) -> HashSet<Skill> {
     occupation
         .slots
         .iter()
         .filter_map(|slot| match slot {
-            Slot::Skill(name) => Some(name.as_str()),
+            Slot::Skill(skill) => Some(*skill),
             Slot::Choice { .. } => None,
         })
         .collect()
@@ -244,8 +255,8 @@ pub(crate) fn fixed_skill_set_for(occupation: &Occupation) -> HashSet<&str> {
 
 // Simple augmenting-path bipartite matching: each required choice pick must be
 // assigned to one unique, non-fixed skill option.
-pub(crate) fn choice_pools_have_full_matching(pools: &[Vec<&str>]) -> bool {
-    fn option_index(option_names: &[&str], target: &str) -> usize {
+pub(crate) fn choice_pools_have_full_matching(pools: &[Vec<Skill>]) -> bool {
+    fn option_index(option_names: &[Skill], target: Skill) -> usize {
         option_names
             .iter()
             .position(|candidate| *candidate == target)
@@ -254,13 +265,13 @@ pub(crate) fn choice_pools_have_full_matching(pools: &[Vec<&str>]) -> bool {
 
     fn assign_pick(
         pick_index: usize,
-        pools: &[Vec<&str>],
-        option_names: &[&str],
+        pools: &[Vec<Skill>],
+        option_names: &[Skill],
         option_to_pick: &mut [Option<usize>],
         seen_options: &mut [bool],
     ) -> bool {
         for option in &pools[pick_index] {
-            let option_idx = option_index(option_names, option);
+            let option_idx = option_index(option_names, *option);
 
             if seen_options[option_idx] {
                 continue;
@@ -312,14 +323,13 @@ pub(crate) fn choice_pools_have_full_matching(pools: &[Vec<&str>]) -> bool {
     true
 }
 
-pub(crate) fn choice_value_is_valid(options: &[String], value: &str) -> bool {
+pub(crate) fn choice_value_is_valid(options: &[Skill], value: &str) -> bool {
     let value = value.trim();
-    !value.is_empty() && options.iter().any(|option| option.trim() == value)
+    Skill::from_name(value).is_some_and(|skill| options.contains(&skill))
 }
 
 pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<String> {
     let mut errors = Vec::new();
-    let known: HashSet<&str> = SKILL_SPECS.iter().map(|skill| skill.name).collect();
     let mut occupation_names = HashSet::new();
 
     for occupation in occupations {
@@ -376,43 +386,38 @@ pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<St
             ));
         }
 
-        let fixed_names_all: HashSet<&str> = occupation
+        let fixed_names_all: HashSet<Skill> = occupation
             .slots
             .iter()
             .filter_map(|slot| match slot {
-                Slot::Skill(name) => Some(name.as_str()),
+                Slot::Skill(skill) => Some(*skill),
                 Slot::Choice { .. } => None,
             })
             .collect();
 
         let mut choice_ids = HashSet::new();
         let mut fixed_names = HashSet::new();
-        let mut choice_pools: Vec<Vec<&str>> = Vec::new();
+        let mut choice_pools: Vec<Vec<Skill>> = Vec::new();
 
         for slot in &occupation.slots {
             match slot {
-                Slot::Skill(name) => {
-                    if !known.contains(name.as_str()) {
-                        errors.push(format!(
-                            "unknown fixed skill `{name}` in occupation `{}`",
-                            occupation.name
-                        ));
-                    }
-                    if name.as_str() == "Credit Rating" {
+                Slot::Skill(skill) => {
+                    if *skill == Skill::CreditRating {
                         errors.push(format!(
                             "occupation `{}` should not list Credit Rating as a fixed slot",
                             occupation.name
                         ));
                     }
-                    if name.as_str() == "Cthulhu Mythos" {
+                    if *skill == Skill::CthulhuMythos {
                         errors.push(format!(
                             "occupation `{}` should not grant Cthulhu Mythos at creation",
                             occupation.name
                         ));
                     }
-                    if !fixed_names.insert(name.as_str()) {
+                    if !fixed_names.insert(*skill) {
                         errors.push(format!(
-                            "duplicate fixed skill `{name}` in occupation `{}`",
+                            "duplicate fixed skill `{}` in occupation `{}`",
+                            skill.name(),
                             occupation.name
                         ));
                     }
@@ -463,49 +468,31 @@ pub(crate) fn occupation_validation_errors(occupations: &[Occupation]) -> Vec<St
 
                     let mut seen = HashSet::new();
                     for option in options {
-                        let normalized_option = option.trim();
-                        if normalized_option.is_empty() {
-                            errors.push(format!(
-                                "choice `{id}` in occupation `{}` has an empty option",
-                                occupation.name
-                            ));
-                        }
-                        if normalized_option != option.as_str() {
-                            errors.push(format!(
-                                "option `{option}` in choice `{id}` for occupation `{}` has outer whitespace",
-                                occupation.name
-                            ));
-                        }
-                        if !known.contains(normalized_option) {
-                            errors.push(format!(
-                                "unknown choice skill `{option}` in occupation `{}`",
-                                occupation.name
-                            ));
-                        }
-                        if normalized_option == "Credit Rating" {
+                        if *option == Skill::CreditRating {
                             errors.push(format!(
                                 "choice `{id}` in occupation `{}` should not include Credit Rating",
                                 occupation.name
                             ));
                         }
-                        if normalized_option == "Cthulhu Mythos" {
+                        if *option == Skill::CthulhuMythos {
                             errors.push(format!(
                                 "choice `{id}` in occupation `{}` should not include Cthulhu Mythos",
                                 occupation.name
                             ));
                         }
-                        if !seen.insert(normalized_option) {
+                        if !seen.insert(*option) {
                             errors.push(format!(
-                                "duplicate option `{option}` in choice `{id}` for occupation `{}`",
+                                "duplicate option `{}` in choice `{id}` for occupation `{}`",
+                                option.name(),
                                 occupation.name
                             ));
                         }
                     }
 
-                    let usable_options: Vec<&str> = options
+                    let usable_options: Vec<Skill> = options
                         .iter()
-                        .map(|option| option.trim())
-                        .filter(|option| !option.is_empty() && !fixed_names_all.contains(*option))
+                        .copied()
+                        .filter(|option| !fixed_names_all.contains(option))
                         .collect();
                     if usable_options.len() < *count {
                         errors.push(format!(
@@ -580,7 +567,7 @@ pub(crate) fn build_occupations() -> Vec<Occupation> {
                 choice(
                     "archaeologist-nav-science",
                     "Navigate or Science",
-                    [vec!["Navigate".to_owned()], skill_options(science_skills())].concat(),
+                    [vec![Skill::Navigate], skill_options(science_skills())].concat(),
                     1,
                 ),
             ],

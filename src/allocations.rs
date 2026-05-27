@@ -1,14 +1,17 @@
 use super::data::*;
 use super::models::*;
 use super::ruleset::SKILL_SPECS;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub(crate) fn skill_accepts_personal_points(skill: &str) -> bool {
     skill != "Credit Rating" && skill != "Cthulhu Mythos"
 }
 
-pub(crate) fn skill_accepts_occupation_points(skill: &str, allowed: &HashSet<String>) -> bool {
-    allowed.contains(skill)
+pub(crate) fn skill_accepts_occupation_points(
+    skill: Skill,
+    allowed: &std::collections::HashSet<Skill>,
+) -> bool {
+    allowed.contains(&skill)
 }
 
 pub(crate) fn sanitized_allocation_value(
@@ -27,13 +30,13 @@ impl CoC7eApp {
     pub(crate) fn skill_rows_for(
         &self,
         final_chars: &CharacteristicValues,
-        occupation_skill_set: &HashSet<String>,
+        occupation_skill_set: &std::collections::HashSet<Skill>,
     ) -> Vec<SkillRow> {
         SKILL_SPECS
             .iter()
             .map(|skill| {
                 let base = get_base_skill_for(skill.id, final_chars);
-                let occ_add = if skill_accepts_occupation_points(skill.name, occupation_skill_set) {
+                let occ_add = if skill_accepts_occupation_points(skill.id, occupation_skill_set) {
                     sanitized_allocation_value(
                         &self.allocations.occupation_points,
                         skill.id,
@@ -195,7 +198,7 @@ impl CoC7eApp {
             return 0;
         };
         if math.selected_occupation.is_none()
-            || !skill_accepts_occupation_points(row.name.as_str(), &math.occupation_skill_set)
+            || !skill_accepts_occupation_points(row.id, &math.occupation_skill_set)
         {
             return 0;
         }

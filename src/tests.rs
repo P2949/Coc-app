@@ -499,10 +499,10 @@ fn occupation_resolution_respects_filled_choice_slots() {
 
     assert_eq!(app.unresolved_choice_count_for(&occupation), 0);
     assert_eq!(app.unique_occupation_shortfall_for(&occupation), 0);
-    assert!(resolved.contains(&"Dodge".to_owned()));
-    assert!(resolved.contains(&"Fighting (Brawl)".to_owned()));
-    assert!(resolved.contains(&"Firearms (Handgun)".to_owned()));
-    assert!(resolved.contains(&"Mechanical Repair".to_owned()));
+    assert!(resolved.contains(&Skill::Dodge));
+    assert!(resolved.contains(&Skill::FightingBrawl));
+    assert!(resolved.contains(&Skill::FirearmsHandgun));
+    assert!(resolved.contains(&Skill::MechanicalRepair));
     assert_eq!(resolved.len(), app.occupation_slot_count_for(&occupation));
 }
 
@@ -905,20 +905,21 @@ fn manual_occupation_allocations_cannot_exceed_total_budget() {
     app.set_occupation("Nurse".to_owned());
     resolve_nurse_choice(&mut app);
 
-    let mut skills: Vec<String> = app
+    let mut skills: Vec<Skill> = app
         .sheet_math()
         .occupation_skill_set
         .iter()
-        .cloned()
+        .copied()
         .collect();
-    skills.sort();
+    skills.sort_by_key(|skill| skill.name());
 
     for skill in skills {
-        app.set_occupation_allocation(&skill, 500);
+        app.set_occupation_allocation(skill.name(), 500);
         let math = app.sheet_math();
         assert!(
             CoC7eApp::used_occupation_points_from(&math.skill_rows) <= math.occupation_budget,
-            "manual occupation allocation overspent after assigning {skill}"
+            "manual occupation allocation overspent after assigning {}",
+            skill.name()
         );
     }
 }
@@ -970,7 +971,6 @@ fn sanitize_allocations_trims_imported_values_to_total_budgets() {
     resolve_nurse_choice(&mut app);
 
     for skill in app.sheet_math().occupation_skill_set {
-        let skill = Skill::from_name(&skill).expect("occupation skill should be known");
         app.allocations.occupation_points.insert(skill, 99);
     }
     for skill in ALL_SKILL_NAMES {
@@ -1429,11 +1429,11 @@ fn custom_occupation_discards_unknown_and_reserved_skills() {
     assert_eq!(
         resolved,
         vec![
-            "Library Use".to_owned(),
-            "Spot Hidden".to_owned(),
-            "Listen".to_owned(),
-            "Stealth".to_owned(),
-            "Persuade".to_owned(),
+            Skill::LibraryUse,
+            Skill::SpotHidden,
+            Skill::Listen,
+            Skill::Stealth,
+            Skill::Persuade,
         ]
     );
     assert_eq!(app.unique_occupation_shortfall_for(&occupation), 3);
@@ -1553,7 +1553,7 @@ fn custom_occupation_required_skill_count_does_not_follow_vector_length() {
     assert_eq!(app.resolved_occupation_skills_for(&occupation).len(), 8);
     assert!(
         !app.resolved_occupation_skills_for(&occupation)
-            .contains(&"Law".to_owned())
+            .contains(&Skill::Law)
     );
 }
 
@@ -1597,7 +1597,7 @@ fn custom_occupation_name_and_skills_are_trimmed() {
     assert_eq!(occupation.name, "Field Researcher");
     assert_eq!(
         app.resolved_occupation_skills_for(&occupation),
-        vec!["Library Use".to_owned()]
+        vec![Skill::LibraryUse]
     );
 }
 
@@ -1726,8 +1726,9 @@ fn invalid_choice_value_does_not_resolve_or_unlock_occupation() {
 
     assert_eq!(app.unresolved_choice_count_for(&occupation), 1);
     assert!(
-        !app.resolved_occupation_skills_for(&occupation)
-            .contains(&"Bogus Skill".to_owned())
+        app.resolved_occupation_skills_for(&occupation)
+            .iter()
+            .all(|skill| skill.name() != "Bogus Skill")
     );
     assert_eq!(app.max_reachable_step(), 4);
 }
@@ -1764,7 +1765,11 @@ fn refresh_reachability_clamps_invalidated_current_step() {
 
 #[test]
 fn choice_pool_matching_accepts_valid_unique_assignment() {
-    let pools = vec![vec!["Climb", "Swim"], vec!["Climb"], vec!["First Aid"]];
+    let pools = vec![
+        vec![Skill::Climb, Skill::Swim],
+        vec![Skill::Climb],
+        vec![Skill::FirstAid],
+    ];
     assert!(choice_pools_have_full_matching(&pools));
 }
 
@@ -2040,9 +2045,9 @@ fn occupation_validation_rejects_choice_ids_that_only_differ_by_outer_whitespace
 }
 
 #[test]
-fn occupation_validation_rejects_choice_options_with_outer_whitespace() {
+fn occupation_validation_rejects_duplicate_choice_options() {
     let occupations = vec![occupation(
-        "Whitespace Choice Option",
+        "Duplicate Choice Option",
         (0, 10),
         vec![FormulaKey::Edu4],
         vec![
@@ -2054,9 +2059,9 @@ fn occupation_validation_rejects_choice_options_with_outer_whitespace() {
             fixed("Climb"),
             fixed("Disguise"),
             choice(
-                "option-whitespace",
-                "Option whitespace",
-                vec!["Charm".to_owned(), " Charm ".to_owned()],
+                "duplicate-option",
+                "Duplicate option",
+                vec![Skill::Charm, Skill::Charm],
                 1,
             ),
         ],
@@ -2064,11 +2069,6 @@ fn occupation_validation_rejects_choice_options_with_outer_whitespace() {
 
     let errors = occupation_validation_errors(&occupations);
 
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("option") && error.contains("outer whitespace"))
-    );
     assert!(
         errors
             .iter()
@@ -2149,6 +2149,63 @@ fn json_save_round_trips_editable_investigator_state() {
         loaded.backstory.get("Traits").map(String::as_str),
         Some("Writes everything down.")
     );
+}
+
+#[test]
+fn json_export_uses_named_characteristics_and_stable_allocation_keys() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.allocations
+        .occupation_points
+        .insert(Skill::LibraryUse, 10);
+    app.allocations
+        .occupation_points
+        .insert(Skill::Accounting, 5);
+
+    let json = app.export_json_save().expect("save should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("exported save should parse");
+
+    assert_eq!(value["chars"]["STR"], 50);
+    assert_eq!(value["chars"]["EDU"], 80);
+    assert!(value["chars"].as_array().is_none());
+
+    let occupation_points = value["allocations"]["occupation_points"]
+        .as_object()
+        .expect("allocation points should serialize as an object");
+    let keys: Vec<&str> = occupation_points.keys().map(String::as_str).collect();
+    assert_eq!(keys, vec!["Accounting", "Library Use"]);
+}
+
+#[test]
+fn json_import_accepts_legacy_ordered_characteristic_arrays() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+
+    value["chars"] = serde_json::json!([50, 55, 60, 65, 70, 75, 80, 85]);
+    value["age_deductions"] = serde_json::json!([0, 5, 0, 0, 0, 0, 0, 0]);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&edited_json)
+        .expect("legacy characteristic arrays should still import");
+
+    assert_eq!(loaded.char_value("STR"), 50);
+    assert_eq!(loaded.char_value("EDU"), 85);
 }
 
 #[test]
@@ -2376,10 +2433,10 @@ fn json_import_sanitizes_custom_occupation_raw_state_before_resaving() {
     assert_eq!(
         loaded.resolved_occupation_skills_for(&occupation),
         vec![
-            "Library Use".to_owned(),
-            "Spot Hidden".to_owned(),
-            "Listen".to_owned(),
-            "Stealth".to_owned(),
+            Skill::LibraryUse,
+            Skill::SpotHidden,
+            Skill::Listen,
+            Skill::Stealth,
         ]
     );
 }

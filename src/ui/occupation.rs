@@ -152,8 +152,8 @@ impl CoC7eApp {
                 ui.add_space(10.0);
                 for slot in &occupation.slots {
                     match slot {
-                        Slot::Skill(name) => {
-                            pill(ui, name, MUTED);
+                        Slot::Skill(skill) => {
+                            pill(ui, skill.name(), MUTED);
                             ui.add_space(4.0);
                         }
                         Slot::Choice {
@@ -181,7 +181,7 @@ impl CoC7eApp {
                         );
                     } else {
                         for skill in resolved {
-                            pill(ui, skill, ACCENT);
+                            pill(ui, skill.name(), ACCENT);
                         }
                     }
                     pill(ui, "Credit Rating", AMBER);
@@ -310,9 +310,9 @@ impl CoC7eApp {
         ui: &mut egui::Ui,
         id: &str,
         label: &str,
-        options: &[String],
+        options: &[Skill],
         count: usize,
-        fixed: &HashSet<&str>,
+        fixed: &HashSet<Skill>,
     ) {
         ui.label(
             RichText::new(if count > 1 {
@@ -350,11 +350,12 @@ impl CoC7eApp {
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut next, String::new(), "— Choose —");
                         for option in options {
-                            let unavailable = (fixed.contains(option.as_str())
-                                || chosen_elsewhere.contains(option.as_str()))
-                                && *option != current_trimmed;
+                            let option_name = option.name();
+                            let unavailable = (fixed.contains(option)
+                                || chosen_elsewhere.contains(option_name))
+                                && option_name != current_trimmed;
                             ui.add_enabled_ui(!unavailable, |ui| {
-                                ui.selectable_value(&mut next, option.clone(), option.as_str());
+                                ui.selectable_value(&mut next, option_name.to_owned(), option_name);
                             });
                         }
                     });

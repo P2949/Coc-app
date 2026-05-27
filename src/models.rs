@@ -275,14 +275,6 @@ pub(crate) fn get_base_skill_for(skill_id: Skill, chars: &CharacteristicValues) 
     }
 }
 
-pub(crate) fn get_base_skill(skill_name: &str, chars: &CharacteristicValues) -> i32 {
-    let skill_id = Skill::from_name(skill_name).unwrap_or_else(|| {
-        panic!("unknown skill name `{skill_name}`; occupation data should be validated at startup")
-    });
-
-    get_base_skill_for(skill_id, chars)
-}
-
 pub(crate) fn calculate_derived(
     chars: &CharacteristicValues,
     age_bracket: AgeBracket,
