@@ -298,15 +298,6 @@ impl CoC7eApp {
                 ui.label(RichText::new("Credit min is greater than credit max; the generated range will be normalized until corrected.").small().color(AMBER));
             }
 
-            let selected: HashSet<String> = self
-                .custom_occupation
-                .skills
-                .iter()
-                .take(required_skill_count)
-                .map(|skill| skill.trim())
-                .filter(|skill| !skill.is_empty())
-                .map(str::to_owned)
-                .collect();
             let options = occupation_selectable_skills();
             egui::Grid::new("custom_skills_grid")
                 .num_columns(2)
@@ -329,15 +320,7 @@ impl CoC7eApp {
                                     format!("— Skill {} —", index + 1),
                                 );
                                 for option in options {
-                                    let unavailable =
-                                        selected.contains(*option) && *option != current_trimmed;
-                                    ui.add_enabled_ui(!unavailable, |ui| {
-                                        ui.selectable_value(
-                                            &mut next,
-                                            (*option).to_owned(),
-                                            *option,
-                                        );
-                                    });
+                                    ui.selectable_value(&mut next, (*option).to_owned(), *option);
                                 }
                             });
 

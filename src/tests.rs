@@ -2836,6 +2836,116 @@ fn custom_occupation_duplicate_specialties_get_independent_rows_and_allocations(
 }
 
 #[test]
+fn changing_custom_slot_skill_clears_slot_allocations() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill_label_for_slot(0, "Language (Latin)".to_owned()));
+    app.set_occupation_allocation_for_instance(Skill::LanguageOther, Some(0), 20);
+    app.set_personal_allocation_for_instance(Skill::LanguageOther, Some(0), 10);
+    assert_eq!(app.allocations.custom_occupation_points.get(&0), Some(&20));
+    assert_eq!(app.allocations.custom_personal_points.get(&0), Some(&10));
+
+    assert!(app.set_custom_occupation_skill(0, "Pilot".to_owned()));
+
+    assert_eq!(app.allocations.custom_occupation_points.get(&0), None);
+    assert_eq!(app.allocations.custom_personal_points.get(&0), None);
+    assert_eq!(app.custom_occupation.skill_slot_labels.get(&0), None);
+}
+
+#[test]
+fn inactive_custom_slot_allocations_survive_required_count_changes() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    assert!(app.set_custom_occupation_skill(0, "Library Use".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Spot Hidden".to_owned()));
+    assert!(app.set_custom_occupation_skill(2, "Listen".to_owned()));
+    assert!(app.set_custom_occupation_skill(3, "Stealth".to_owned()));
+    app.set_occupation_allocation_for_instance(Skill::Stealth, Some(3), 25);
+    app.set_personal_allocation_for_instance(Skill::Stealth, Some(3), 5);
+
+    app.set_custom_occupation_required_skill_count(3);
+    app.sanitize_state();
+    assert_eq!(app.custom_occupation.skills[3], "Stealth");
+    assert_eq!(app.allocations.custom_occupation_points.get(&3), Some(&25));
+    assert_eq!(app.allocations.custom_personal_points.get(&3), Some(&5));
+
+    app.set_custom_occupation_required_skill_count(4);
+    let math = app.sheet_math();
+    let stealth = math
+        .skill_rows
+        .iter()
+        .find(|row| row.custom_index == Some(3) && row.id == Skill::Stealth)
+        .expect("inactive custom Stealth slot should become active again");
+    assert_eq!(stealth.occ_add, 25);
+    assert_eq!(stealth.personal_add, 5);
+}
+
+#[test]
+fn normalized_luck_is_reported_without_resetting_luck() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+    value["luck_state"] = serde_json::json!({
+        "value": 15,
+        "rolls": [
+            {
+                "rolls": [1, 1, 1],
+                "plus_six": false,
+                "value": 15,
+                "kept": false
+            },
+            {
+                "rolls": [6, 6, 6],
+                "plus_six": false,
+                "value": 90,
+                "kept": true
+            }
+        ]
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("normalized Luck save should import");
+
+    assert!(report.normalized_luck, "{report:?}");
+    assert!(!report.reset_luck, "{report:?}");
+    assert_eq!(loaded.luck_state.value, Some(15));
+    assert_eq!(loaded.luck_state.rolls.len(), 1);
+    assert_eq!(loaded.luck_state.rolls[0].kept, Some(true));
+}
+
+#[test]
 fn lowering_custom_required_skill_count_preserves_inactive_slots() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
@@ -2941,6 +3051,7 @@ fn import_report_includes_non_allocation_corrections() {
         !report.removed_characteristic_rolls.is_empty(),
         "{report:?}"
     );
+    assert!(report.normalized_luck, "{report:?}");
     assert!(report.reset_luck, "{report:?}");
     assert!(
         !report.removed_backstory_categories.is_empty(),

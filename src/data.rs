@@ -810,6 +810,7 @@ pub(crate) struct SanitizeReport {
     pub(crate) clamped_characteristics: Vec<String>,
     pub(crate) removed_characteristic_rolls: Vec<String>,
     pub(crate) reset_luck: bool,
+    pub(crate) normalized_luck: bool,
     pub(crate) normalized_edu_checks: bool,
     pub(crate) normalized_age_deductions: bool,
     pub(crate) removed_backstory_categories: Vec<String>,
@@ -827,6 +828,7 @@ impl SanitizeReport {
             && self.clamped_characteristics.is_empty()
             && self.removed_characteristic_rolls.is_empty()
             && !self.reset_luck
+            && !self.normalized_luck
             && !self.normalized_edu_checks
             && !self.normalized_age_deductions
             && self.removed_backstory_categories.is_empty()
@@ -895,6 +897,8 @@ impl SanitizeReport {
         }
         if self.reset_luck {
             parts.push("reset invalid Luck roll evidence".to_owned());
+        } else if self.normalized_luck {
+            parts.push("normalized Luck roll evidence".to_owned());
         }
         if self.normalized_edu_checks {
             parts.push("normalized EDU age checks".to_owned());

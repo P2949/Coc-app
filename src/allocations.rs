@@ -233,10 +233,21 @@ impl CoC7eApp {
         let mut personal_points = HashMap::new();
         let mut custom_occupation_points = HashMap::new();
         let mut custom_personal_points = HashMap::new();
+        let mut active_custom_indices = HashSet::new();
+        let valid_custom_indices: HashSet<usize> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .enumerate()
+            .filter_map(|(index, skill)| Skill::from_name(skill.trim()).map(|_| index))
+            .collect();
         let mut remaining_occupation = math.occupation_budget.max(0);
         let mut remaining_personal = math.personal_budget.max(0);
 
         for row in math.skill_rows {
+            if let Some(index) = row.custom_index {
+                active_custom_indices.insert(index);
+            }
             let occ_add = if enforce_total_budgets {
                 let value = row.occ_add.min(remaining_occupation).max(0);
                 remaining_occupation -= value;
@@ -268,6 +279,23 @@ impl CoC7eApp {
                 } else {
                     personal_points.insert(row.id, personal_add);
                 }
+            }
+        }
+
+        for (index, value) in &before_custom_occupation {
+            if !active_custom_indices.contains(index)
+                && valid_custom_indices.contains(index)
+                && *value > 0
+            {
+                custom_occupation_points.insert(*index, *value);
+            }
+        }
+        for (index, value) in &before_custom_personal {
+            if !active_custom_indices.contains(index)
+                && valid_custom_indices.contains(index)
+                && *value > 0
+            {
+                custom_personal_points.insert(*index, *value);
             }
         }
 

@@ -76,6 +76,44 @@ impl CoC7eApp {
             .collect()
     }
 
+    fn ensure_distinct_slot_labels_for_active_duplicates(&mut self, skill: Skill) {
+        let duplicate_indices: Vec<usize> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .take(self.custom_occupation_required_skill_count())
+            .enumerate()
+            .filter_map(|(index, slot_skill)| {
+                (Skill::from_name(slot_skill.trim()) == Some(skill)).then_some(index)
+            })
+            .collect();
+
+        if duplicate_indices.len() < 2 {
+            return;
+        }
+
+        let mut seen = HashSet::new();
+        for (ordinal, index) in duplicate_indices.iter().enumerate() {
+            let existing = self
+                .custom_occupation
+                .skill_slot_labels
+                .get(index)
+                .map(|label| label.trim().to_owned())
+                .unwrap_or_default();
+            if !existing.is_empty() && seen.insert(existing) {
+                continue;
+            }
+
+            let mut label = format!("{} {}", skill.name(), ordinal + 1);
+            while !seen.insert(label.clone()) {
+                label.push('*');
+            }
+            self.custom_occupation
+                .skill_slot_labels
+                .insert(*index, label);
+        }
+    }
+
     pub(crate) fn sanitize_custom_occupation(&mut self) {
         self.custom_occupation.credit_min = self.custom_occupation.credit_min.clamp(0, 99);
         self.custom_occupation.credit_max = self.custom_occupation.credit_max.clamp(0, 99);
@@ -390,12 +428,16 @@ impl CoC7eApp {
         if !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str()) {
             return false;
         }
+        let new_skill = Skill::from_name(&normalized).expect("validated custom skill name");
         if let Some(old_skill) = Skill::from_name(self.custom_occupation.skills[index].trim())
-            && old_skill.name() != normalized.as_str()
+            && old_skill != new_skill
         {
             self.custom_occupation.skill_slot_labels.remove(&index);
+            self.allocations.custom_occupation_points.remove(&index);
+            self.allocations.custom_personal_points.remove(&index);
         }
         self.custom_occupation.skills[index] = normalized;
+        self.ensure_distinct_slot_labels_for_active_duplicates(new_skill);
         self.prune_occupation_allocations();
         true
     }
@@ -584,7 +626,8 @@ impl CoC7eApp {
                 report.removed_characteristic_rolls.push(key);
             }
         }
-        report.reset_luck = luck_before != self.luck_state && self.luck_state.value.is_none();
+        report.normalized_luck = luck_before != self.luck_state;
+        report.reset_luck = report.normalized_luck && self.luck_state.value.is_none();
         report.normalized_edu_checks =
             edu_checks_before != self.edu_check_rolls || edu_bonus_before != self.edu_bonus;
         report.normalized_age_deductions = age_deductions_before != self.age_deductions;
