@@ -33,7 +33,15 @@ impl CoC7eApp {
         }
     }
 
+    pub(crate) fn custom_occupation_required_skill_count(&self) -> usize {
+        self.custom_occupation.required_skill_count.clamp(
+            CUSTOM_OCCUPATION_MIN_SKILL_COUNT,
+            CUSTOM_OCCUPATION_SKILL_COUNT,
+        )
+    }
+
     pub(crate) fn normalize_custom_occupation_skills(&mut self) {
+        self.custom_occupation.required_skill_count = self.custom_occupation_required_skill_count();
         self.custom_occupation
             .skills
             .resize(CUSTOM_OCCUPATION_SKILL_COUNT, String::new());
@@ -42,15 +50,39 @@ impl CoC7eApp {
             .truncate(CUSTOM_OCCUPATION_SKILL_COUNT);
     }
 
+    pub(crate) fn custom_skill_display_name(&self, skill: Skill) -> String {
+        if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            let key = skill.name();
+            if let Some(label) = self.custom_occupation.skill_labels.get(key) {
+                let trimmed = label.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_owned();
+                }
+            }
+        }
+        skill.name().to_owned()
+    }
+
+    fn selected_custom_skill_set(&self) -> HashSet<Skill> {
+        self.custom_occupation
+            .skills
+            .iter()
+            .take(self.custom_occupation_required_skill_count())
+            .filter_map(|skill| Skill::from_name(skill.trim()))
+            .collect()
+    }
+
     pub(crate) fn sanitize_custom_occupation(&mut self) {
         self.custom_occupation.credit_min = self.custom_occupation.credit_min.clamp(0, 99);
         self.custom_occupation.credit_max = self.custom_occupation.credit_max.clamp(0, 99);
         self.normalize_custom_occupation_skills();
 
+        let required_count = self.custom_occupation_required_skill_count();
         let mut seen = HashSet::new();
-        for skill in &mut self.custom_occupation.skills {
+        for (index, skill) in self.custom_occupation.skills.iter_mut().enumerate() {
             let normalized = skill.trim().to_owned();
-            if normalized.is_empty()
+            if index >= required_count
+                || normalized.is_empty()
                 || !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str())
                 || !seen.insert(normalized.clone())
             {
@@ -58,6 +90,26 @@ impl CoC7eApp {
             } else {
                 *skill = normalized;
             }
+        }
+
+        let selected = self.selected_custom_skill_set();
+        self.custom_occupation
+            .skill_labels
+            .retain(|skill_name, label| {
+                let Some(skill) = Skill::from_name(skill_name.trim()) else {
+                    return false;
+                };
+                selected.contains(&skill) && !label.trim().is_empty()
+            });
+        let normalized_labels: Vec<(String, String)> = self
+            .custom_occupation
+            .skill_labels
+            .iter()
+            .map(|(skill, label)| (skill.trim().to_owned(), label.trim().to_owned()))
+            .collect();
+        self.custom_occupation.skill_labels.clear();
+        for (skill, label) in normalized_labels {
+            self.custom_occupation.skill_labels.insert(skill, label);
         }
     }
 
@@ -128,7 +180,7 @@ impl CoC7eApp {
             self.custom_occupation
                 .skills
                 .iter()
-                .take(CUSTOM_OCCUPATION_SKILL_COUNT)
+                .take(self.custom_occupation_required_skill_count())
                 .map(|skill| skill.trim().to_owned())
                 .filter(|skill| {
                     !skill.is_empty() && OCCUPATION_SELECTABLE_SKILLS.contains(&skill.as_str())
@@ -202,6 +254,34 @@ impl CoC7eApp {
         self.custom_occupation.credit_max = next.clamp(0, 99);
     }
 
+    pub(crate) fn set_custom_occupation_required_skill_count(&mut self, next: usize) {
+        self.custom_occupation.required_skill_count = next.clamp(
+            CUSTOM_OCCUPATION_MIN_SKILL_COUNT,
+            CUSTOM_OCCUPATION_SKILL_COUNT,
+        );
+        self.sanitize_custom_occupation();
+        self.prune_occupation_allocations();
+    }
+
+    pub(crate) fn set_custom_occupation_skill_label(&mut self, skill: Skill, next: String) -> bool {
+        if !self.selected_custom_skill_set().contains(&skill) {
+            self.custom_occupation.skill_labels.remove(skill.name());
+            return false;
+        }
+
+        let normalized = next.trim();
+        if normalized.is_empty() || normalized == skill.name() {
+            self.custom_occupation.skill_labels.remove(skill.name());
+            return true;
+        }
+
+        let normalized = normalized.chars().take(64).collect::<String>();
+        self.custom_occupation
+            .skill_labels
+            .insert(skill.name().to_owned(), normalized);
+        true
+    }
+
     pub(crate) fn set_custom_occupation_skill(&mut self, index: usize, next: String) -> bool {
         self.normalize_custom_occupation_skills();
         if index >= CUSTOM_OCCUPATION_SKILL_COUNT {
@@ -210,6 +290,9 @@ impl CoC7eApp {
 
         let normalized = next.trim().to_owned();
         if normalized.is_empty() {
+            if let Some(old_skill) = Skill::from_name(self.custom_occupation.skills[index].trim()) {
+                self.custom_occupation.skill_labels.remove(old_skill.name());
+            }
             self.custom_occupation.skills[index].clear();
             self.prune_occupation_allocations();
             return true;
@@ -227,6 +310,11 @@ impl CoC7eApp {
             return false;
         }
 
+        if let Some(old_skill) = Skill::from_name(self.custom_occupation.skills[index].trim())
+            && old_skill.name() != normalized.as_str()
+        {
+            self.custom_occupation.skill_labels.remove(old_skill.name());
+        }
         self.custom_occupation.skills[index] = normalized;
         self.prune_occupation_allocations();
         true
@@ -339,9 +427,9 @@ impl CoC7eApp {
 
     pub(crate) fn required_occupation_skill_count_for(&self, occupation: &Occupation) -> usize {
         // A custom occupation's built Occupation only contains filled unique skills,
-        // but the creator still requires all eight custom skill slots to be filled.
+        // but the creator still requires the configured number of custom skill slots to be filled.
         if self.occupation_id == CUSTOM_OCCUPATION_ID {
-            CUSTOM_OCCUPATION_SKILL_COUNT
+            self.custom_occupation_required_skill_count()
         } else {
             self.occupation_slot_count_for(occupation)
         }
@@ -371,6 +459,11 @@ impl CoC7eApp {
     }
 
     pub(crate) fn sanitize_state(&mut self) {
+        let _ = self.sanitize_state_with_report();
+    }
+
+    pub(crate) fn sanitize_state_with_report(&mut self) -> SanitizeReport {
+        let label_count_before = self.custom_occupation.skill_labels.len();
         self.sanitize_custom_occupation();
         let selected_occupation = self.selected_occupation();
 
@@ -386,6 +479,14 @@ impl CoC7eApp {
         self.sanitize_luck_state();
         self.sanitize_edu_age_checks();
         self.sanitize_age_deductions();
-        self.sanitize_allocations();
+        let mut report = self.sanitize_allocations_with_report();
+        let removed_labels =
+            label_count_before.saturating_sub(self.custom_occupation.skill_labels.len());
+        for _ in 0..removed_labels {
+            report
+                .removed_unknown_skills
+                .push("custom occupation skill label".to_owned());
+        }
+        report
     }
 }

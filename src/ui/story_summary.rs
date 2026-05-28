@@ -339,9 +339,7 @@ impl CoC7eApp {
             ui.label(RichText::new("Skills").size(16.0).strong());
             let final_skills: Vec<_> = skill_rows
                 .iter()
-                .filter(|row| {
-                    row.total > row.base || SUMMARY_ALWAYS_SHOW.contains(&row.name.as_str())
-                })
+                .filter(|row| row.total > row.base || SUMMARY_ALWAYS_SHOW.contains(&row.id.name()))
                 .collect();
             egui::Grid::new("summary_skills")
                 .num_columns(4)
@@ -522,7 +520,7 @@ impl CoC7eApp {
         push_line(&mut out, "Skills");
         for row in skill_rows
             .iter()
-            .filter(|row| row.total > row.base || SUMMARY_ALWAYS_SHOW.contains(&row.name.as_str()))
+            .filter(|row| row.total > row.base || SUMMARY_ALWAYS_SHOW.contains(&row.id.name()))
         {
             push_line(
                 &mut out,

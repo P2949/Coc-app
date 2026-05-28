@@ -2638,3 +2638,197 @@ fn occupation_validation_rejects_duplicate_formulas() {
 
     validate_occupations(&occupations);
 }
+
+#[test]
+fn json_import_accepts_missing_version_as_legacy_v0_save() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+    value
+        .as_object_mut()
+        .expect("save root should be an object")
+        .remove("version");
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("missing-version saves should migrate as legacy v0");
+
+    assert!(report.is_clean());
+    assert_eq!(loaded.save_file().version, INVESTIGATOR_SAVE_VERSION);
+}
+
+#[test]
+fn json_import_reports_corrected_allocations_and_unknown_allocation_keys() {
+    let mut source = test_app();
+    source.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    source.set_occupation("Nurse".to_owned());
+    resolve_nurse_choice(&mut source);
+
+    let json = source.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+    value["allocations"]["occupation_points"]["First Aid"] = serde_json::json!(999);
+    value["allocations"]["personal_points"]["Credit Rating"] = serde_json::json!(30);
+    value["allocations"]["personal_points"]["Bogus Skill"] = serde_json::json!(10);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("sanitized save should import");
+
+    assert!(
+        report
+            .clamped_allocations
+            .iter()
+            .any(|entry| entry.contains("First Aid")),
+        "expected clamped First Aid allocation, got {report:?}"
+    );
+    assert!(
+        report
+            .removed_allocations
+            .iter()
+            .any(|entry| entry.contains("Credit Rating")),
+        "expected removed Credit Rating personal allocation, got {report:?}"
+    );
+    assert!(
+        report
+            .removed_unknown_skills
+            .iter()
+            .any(|entry| entry.contains("Bogus Skill")),
+        "expected unknown Bogus Skill allocation report, got {report:?}"
+    );
+}
+
+#[test]
+fn custom_occupation_can_use_lower_required_skill_count() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(3);
+    app.set_custom_occupation_skill(0, "Library Use".to_owned());
+    app.set_custom_occupation_skill(1, "Spot Hidden".to_owned());
+
+    let occupation = app
+        .selected_occupation()
+        .expect("custom occupation should exist");
+    assert_eq!(app.required_occupation_skill_count_for(&occupation), 3);
+    assert_eq!(app.unique_occupation_shortfall_for(&occupation), 1);
+
+    app.set_custom_occupation_skill(2, "Listen".to_owned());
+    let occupation = app
+        .selected_occupation()
+        .expect("custom occupation should exist");
+    assert_eq!(app.unique_occupation_shortfall_for(&occupation), 0);
+    assert_eq!(
+        app.resolved_occupation_skills_for(&occupation),
+        vec![Skill::LibraryUse, Skill::SpotHidden, Skill::Listen]
+    );
+}
+
+#[test]
+fn custom_occupation_skill_labels_drive_display_without_changing_canonical_skill_ids() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(
+        app.set_custom_occupation_skill_label(Skill::LanguageOther, "Language (Latin)".to_owned())
+    );
+
+    let math = app.sheet_math();
+    let row = math
+        .skill_rows
+        .iter()
+        .find(|row| row.id == Skill::LanguageOther)
+        .expect("Language (Other) row should exist");
+    assert_eq!(row.name.as_str(), "Language (Latin)");
+
+    app.set_occupation_allocation_for(Skill::LanguageOther, 20);
+    assert_eq!(
+        app.allocations.occupation_points.get(&Skill::LanguageOther),
+        Some(&20)
+    );
+}
+
+#[test]
+fn json_file_helpers_round_trip_save_data() {
+    let mut source = test_app();
+    source.concept.name = "File Round Trip".to_owned();
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "coc7e_investigator_creator_test_{}_round_trip.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+
+    source
+        .save_json_to_path(&path)
+        .expect("save file should be written");
+    let mut loaded = test_app();
+    let report = loaded
+        .load_json_from_path(&path)
+        .expect("save file should be readable");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(report.is_clean());
+    assert_eq!(loaded.concept.name, "File Round Trip");
+}
+
+#[test]
+fn rng_seed_is_saved_and_restored() {
+    let source = test_app();
+    let json = source.export_json_save().expect("save should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+
+    assert_eq!(
+        value["rng_seed"],
+        serde_json::json!(0xC0C7_E7E5_0000_0001_u64)
+    );
+
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("save should import cleanly");
+    assert_eq!(loaded.rng_seed, source.rng_seed);
+}

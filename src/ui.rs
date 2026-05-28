@@ -5,6 +5,7 @@ use super::ruleset::*;
 use eframe::egui;
 use egui::RichText;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "ui/characteristics.rs"]
@@ -41,7 +42,7 @@ impl CoC7eApp {
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos() as u64)
-            .unwrap_or(0xC0C7_E7E5_1234_5678);
+            .unwrap_or(DEFAULT_RNG_SEED);
 
         let occupations = build_occupations();
         let mut startup_validation_errors = skill_constant_validation_errors();
@@ -72,11 +73,13 @@ impl CoC7eApp {
             allocations: AllocationState::default(),
             backstory: HashMap::new(),
             import_json_text: String::new(),
+            save_load_path: String::new(),
             save_load_message: None,
             occupations,
             startup_validation_errors: Vec::new(),
             last_age_bracket_index: age_index,
             frame_max_reachable_step: 2,
+            rng_seed: rng_state,
             rng: AppRng::seeded(rng_state),
         }
     }
@@ -87,7 +90,7 @@ impl CoC7eApp {
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos() as u64)
-            .unwrap_or(0xC0C7_E7E5_1234_5678);
+            .unwrap_or(DEFAULT_RNG_SEED);
         *self = Self::fresh(occupations, seed | 1);
         self.startup_validation_errors = startup_validation_errors;
     }
@@ -176,14 +179,21 @@ impl CoC7eApp {
 
                         let load_response = ui.add_enabled(
                             !self.import_json_text.trim().is_empty(),
-                            egui::Button::new("Load JSON save"),
+                            egui::Button::new("Load pasted JSON"),
                         );
                         if load_response.clicked() {
                             let input = self.import_json_text.clone();
                             match self.import_json_save(&input) {
-                                Ok(()) => {
+                                Ok(report) => {
                                     self.import_json_text.clear();
-                                    self.save_load_message = Some("Loaded JSON save.".to_owned());
+                                    self.save_load_message = Some(if report.is_clean() {
+                                        "Loaded JSON save.".to_owned()
+                                    } else {
+                                        format!(
+                                            "Loaded JSON save and corrected invalid data: {}.",
+                                            report.summary()
+                                        )
+                                    });
                                 }
                                 Err(error) => {
                                     self.save_load_message = Some(error);
@@ -191,6 +201,57 @@ impl CoC7eApp {
                             }
                         } else if self.import_json_text.trim().is_empty() {
                             load_response.on_hover_text("Paste a JSON save before loading.");
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("File path").small().color(MUTED).strong());
+                        ui.add_sized(
+                            [520.0, 26.0],
+                            egui::TextEdit::singleline(&mut self.save_load_path)
+                                .hint_text("/path/to/investigator.json"),
+                        );
+                        let path = PathBuf::from(self.save_load_path.trim());
+                        let path_present = !self.save_load_path.trim().is_empty();
+
+                        let save_response = ui.add_enabled(
+                            path_present,
+                            egui::Button::new("Save JSON to file"),
+                        );
+                        if save_response.clicked() {
+                            match self.save_json_to_path(&path) {
+                                Ok(()) => {
+                                    self.save_load_message =
+                                        Some(format!("Saved JSON to {}.", path.display()));
+                                }
+                                Err(error) => self.save_load_message = Some(error),
+                            }
+                        } else if !path_present {
+                            save_response.on_hover_text("Enter a file path before saving.");
+                        }
+
+                        let load_file_response = ui.add_enabled(
+                            path_present,
+                            egui::Button::new("Load JSON from file"),
+                        );
+                        if load_file_response.clicked() {
+                            match self.load_json_from_path(&path) {
+                                Ok(report) => {
+                                    self.import_json_text.clear();
+                                    self.save_load_message = Some(if report.is_clean() {
+                                        format!("Loaded JSON from {}.", path.display())
+                                    } else {
+                                        format!(
+                                            "Loaded JSON from {} and corrected invalid data: {}.",
+                                            path.display(),
+                                            report.summary()
+                                        )
+                                    });
+                                }
+                                Err(error) => self.save_load_message = Some(error),
+                            }
+                        } else if !path_present {
+                            load_file_response.on_hover_text("Enter a file path before loading.");
                         }
                     });
                     if let Some(message) = &self.save_load_message {

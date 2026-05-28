@@ -11,7 +11,7 @@ impl CoC7eApp {
         heading(
             ui,
             "III. Occupation",
-            "Choose an occupation, resolve choice slots, or define a Keeper-approved custom occupation with eight unique occupation skills.",
+            "Choose an occupation, resolve choice slots, or define a Keeper-approved custom occupation with a configurable number of unique occupation skills.",
         );
 
         if self.occupation_id == CUSTOM_OCCUPATION_ID {
@@ -153,7 +153,7 @@ impl CoC7eApp {
                 for slot in &occupation.slots {
                     match slot {
                         Slot::Skill(skill) => {
-                            pill(ui, skill.name(), MUTED);
+                            pill(ui, self.custom_skill_display_name(*skill), MUTED);
                             ui.add_space(4.0);
                         }
                         Slot::Choice {
@@ -181,7 +181,7 @@ impl CoC7eApp {
                         );
                     } else {
                         for skill in resolved {
-                            pill(ui, skill.name(), ACCENT);
+                            pill(ui, self.custom_skill_display_name(skill), ACCENT);
                         }
                     }
                     pill(ui, "Credit Rating", AMBER);
@@ -234,12 +234,42 @@ impl CoC7eApp {
                         }
                     });
                     ui.end_row();
+                    let mut required_skill_count = self.custom_occupation_required_skill_count();
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Required skills")
+                                .small()
+                                .color(MUTED)
+                                .strong(),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut required_skill_count)
+                                .range(
+                                    CUSTOM_OCCUPATION_MIN_SKILL_COUNT
+                                        ..=CUSTOM_OCCUPATION_SKILL_COUNT,
+                                )
+                                .speed(1.0),
+                        );
+                    });
+                    ui.label(
+                        RichText::new(
+                            "Keepers can lower this for custom or simplified occupations.",
+                        )
+                        .small()
+                        .color(FAINT),
+                    );
+                    if required_skill_count != self.custom_occupation_required_skill_count() {
+                        self.set_custom_occupation_required_skill_count(required_skill_count);
+                    }
+                    ui.end_row();
                 });
 
             ui.add_space(8.0);
+            let required_skill_count = self.custom_occupation_required_skill_count();
             ui.label(
                 RichText::new(format!(
-                    "Choose {CUSTOM_OCCUPATION_SKILL_COUNT} occupation skills"
+                    "Choose {required_skill_count} occupation skill{}",
+                    if required_skill_count == 1 { "" } else { "s" }
                 ))
                 .small()
                 .color(MUTED)
@@ -253,7 +283,7 @@ impl CoC7eApp {
                 .custom_occupation
                 .skills
                 .iter()
-                .take(CUSTOM_OCCUPATION_SKILL_COUNT)
+                .take(required_skill_count)
                 .map(|skill| skill.trim())
                 .filter(|skill| !skill.is_empty())
                 .map(str::to_owned)
@@ -263,7 +293,7 @@ impl CoC7eApp {
                 .num_columns(2)
                 .spacing([10.0, 8.0])
                 .show(ui, |ui| {
-                    for index in 0..CUSTOM_OCCUPATION_SKILL_COUNT {
+                    for index in 0..required_skill_count {
                         let current_trimmed =
                             self.custom_occupation.skills[index].trim().to_owned();
                         let mut next = current_trimmed.clone();
@@ -297,9 +327,42 @@ impl CoC7eApp {
                             self.set_custom_occupation_skill(index, normalized);
                         }
 
-                        if index % 2 == 1 {
-                            ui.end_row();
+                        if let Some(skill) =
+                            Skill::from_name(self.custom_occupation.skills[index].trim())
+                        {
+                            ui.vertical(|ui| {
+                                let current_label = self
+                                    .custom_occupation
+                                    .skill_labels
+                                    .get(skill.name())
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let mut label = current_label.clone();
+                                ui.add_sized(
+                                    [220.0, 24.0],
+                                    egui::TextEdit::singleline(&mut label).hint_text(
+                                        skill
+                                            .custom_label_hint()
+                                            .unwrap_or("optional display label"),
+                                    ),
+                                );
+                                if label != current_label {
+                                    self.set_custom_occupation_skill_label(skill, label);
+                                }
+                                let display = self.custom_skill_display_name(skill);
+                                if display != skill.name() {
+                                    ui.label(
+                                        RichText::new(format!("Shown as {display}"))
+                                            .small()
+                                            .color(FAINT),
+                                    );
+                                }
+                            });
+                        } else {
+                            ui.label(RichText::new(" ").small());
                         }
+
+                        ui.end_row();
                     }
                 });
         });

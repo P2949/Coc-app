@@ -11,7 +11,9 @@ use std::ops::Index;
 
 pub(crate) const CUSTOM_OCCUPATION_ID: &str = "__custom__";
 pub(crate) const INVESTIGATOR_SAVE_VERSION: u32 = 1;
+pub(crate) const CUSTOM_OCCUPATION_MIN_SKILL_COUNT: usize = 1;
 pub(crate) const CUSTOM_OCCUPATION_SKILL_COUNT: usize = 8;
+pub(crate) const DEFAULT_RNG_SEED: u64 = 0xC0C7_E7E5_1234_5678;
 // Optional helper budget, not an official CoC 7e point-buy rule.
 // 460 is the total used by this app's balanced adjustable preset.
 pub(crate) const POINT_BUY_BUDGET: i32 = 460;
@@ -541,6 +543,37 @@ impl Skill {
             _ => None,
         }
     }
+
+    pub(crate) fn custom_label_hint(self) -> Option<&'static str> {
+        match self {
+            Self::ArtCraft
+            | Self::ArtCraftActing
+            | Self::ArtCraftFineArt
+            | Self::ArtCraftForgery
+            | Self::ArtCraftLiterature
+            | Self::ArtCraftPhotography
+            | Self::ArtCraftTechnicalDrawing
+            | Self::ArtCraftWriting => Some("Art/Craft (Photography)"),
+            Self::FightingBrawl => Some("Fighting (Sword)"),
+            Self::FirearmsHandgun | Self::FirearmsRifleShotgun => Some("Firearms (SMG)"),
+            Self::LanguageOther => Some("Language (Latin)"),
+            Self::Pilot => Some("Pilot (Boat)"),
+            Self::ScienceAstronomy
+            | Self::ScienceBiology
+            | Self::ScienceBotany
+            | Self::ScienceChemistry
+            | Self::ScienceCryptography
+            | Self::ScienceEngineering
+            | Self::ScienceForensics
+            | Self::ScienceGeology
+            | Self::ScienceMathematics
+            | Self::SciencePharmacy
+            | Self::SciencePhysics
+            | Self::ScienceZoology => Some("Science (Astrobiology)"),
+            Self::Survival => Some("Survival (Desert)"),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -644,12 +677,20 @@ impl Default for Concept {
     }
 }
 
+fn default_custom_occupation_required_skill_count() -> usize {
+    CUSTOM_OCCUPATION_SKILL_COUNT
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CustomOccupation {
     pub(crate) name: String,
     pub(crate) credit_min: i32,
     pub(crate) credit_max: i32,
     pub(crate) formula_key: FormulaKey,
+    #[serde(default = "default_custom_occupation_required_skill_count")]
+    pub(crate) required_skill_count: usize,
+    #[serde(default)]
+    pub(crate) skill_labels: BTreeMap<String, String>,
     pub(crate) skills: Vec<String>,
 }
 
@@ -660,6 +701,8 @@ impl Default for CustomOccupation {
             credit_min: 9,
             credit_max: 60,
             formula_key: FormulaKey::Edu4,
+            required_skill_count: CUSTOM_OCCUPATION_SKILL_COUNT,
+            skill_labels: BTreeMap::new(),
             skills: vec![String::new(); CUSTOM_OCCUPATION_SKILL_COUNT],
         }
     }
@@ -750,6 +793,63 @@ pub(crate) struct AllocationState {
     pub(crate) personal_points: HashMap<Skill, i32>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SanitizeReport {
+    pub(crate) removed_allocations: Vec<String>,
+    pub(crate) clamped_allocations: Vec<String>,
+    pub(crate) removed_unknown_skills: Vec<String>,
+}
+
+impl SanitizeReport {
+    pub(crate) fn is_clean(&self) -> bool {
+        self.removed_allocations.is_empty()
+            && self.clamped_allocations.is_empty()
+            && self.removed_unknown_skills.is_empty()
+    }
+
+    pub(crate) fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if !self.clamped_allocations.is_empty() {
+            parts.push(format!(
+                "clamped {} allocation{}",
+                self.clamped_allocations.len(),
+                if self.clamped_allocations.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if !self.removed_allocations.is_empty() {
+            parts.push(format!(
+                "removed {} allocation{}",
+                self.removed_allocations.len(),
+                if self.removed_allocations.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if !self.removed_unknown_skills.is_empty() {
+            parts.push(format!(
+                "removed {} unknown/custom skill label{}",
+                self.removed_unknown_skills.len(),
+                if self.removed_unknown_skills.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if parts.is_empty() {
+            "no corrections".to_owned()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct SerializableAllocationState {
     occupation_points: BTreeMap<String, i32>,
@@ -812,6 +912,8 @@ pub(crate) struct InvestigatorSaveFile {
     pub(crate) char_method: CharMethod,
     pub(crate) chars: CharacteristicValues,
     pub(crate) char_rolls: BTreeMap<String, DiceResult>,
+    #[serde(default)]
+    pub(crate) rng_seed: u64,
     pub(crate) luck_state: LuckState,
     pub(crate) age_deductions: CharacteristicValues,
     pub(crate) edu_bonus: i32,
@@ -842,10 +944,12 @@ pub(crate) struct CoC7eApp {
     pub(super) allocations: AllocationState,
     pub(super) backstory: HashMap<String, String>,
     pub(super) import_json_text: String,
+    pub(super) save_load_path: String,
     pub(super) save_load_message: Option<String>,
     pub(super) occupations: Vec<Occupation>,
     pub(super) startup_validation_errors: Vec<String>,
     pub(super) last_age_bracket_index: usize,
     pub(super) frame_max_reachable_step: usize,
+    pub(super) rng_seed: u64,
     pub(super) rng: AppRng,
 }

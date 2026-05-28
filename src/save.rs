@@ -2,20 +2,58 @@ use super::data::*;
 use super::models::*;
 use super::ruleset::BACKSTORY_CATEGORIES;
 use std::collections::HashSet;
+use std::path::Path;
 
-fn migrate_save_value(value: serde_json::Value) -> Result<InvestigatorSaveFile, String> {
+fn migrate_v0_to_v1(value: &mut serde_json::Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "version".to_owned(),
+            serde_json::Value::from(INVESTIGATOR_SAVE_VERSION),
+        );
+    }
+}
+
+fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
+    let mut unknown = Vec::new();
+    for field in ["occupation_points", "personal_points"] {
+        let Some(points) = value
+            .get("allocations")
+            .and_then(|allocations| allocations.get(field))
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        for skill in points.keys() {
+            if Skill::from_name(skill).is_none() {
+                unknown.push(format!("{field}: {skill}"));
+            }
+        }
+    }
+    unknown
+}
+
+fn migrate_save_value(
+    mut value: serde_json::Value,
+) -> Result<(InvestigatorSaveFile, Vec<String>), String> {
     let version = value
         .get("version")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| "save is missing numeric version".to_owned())?;
+        .unwrap_or(0);
 
-    if version != INVESTIGATOR_SAVE_VERSION as u64 {
-        return Err(format!(
-            "unsupported save version {version}; this app supports version {INVESTIGATOR_SAVE_VERSION}"
-        ));
+    match version {
+        0 => migrate_v0_to_v1(&mut value),
+        current if current == INVESTIGATOR_SAVE_VERSION as u64 => {}
+        unsupported => {
+            return Err(format!(
+                "unsupported save version {unsupported}; this app supports up to version {INVESTIGATOR_SAVE_VERSION}"
+            ));
+        }
     }
 
-    serde_json::from_value(value).map_err(|error| format!("could not parse JSON save: {error}"))
+    let unknown_skills = unknown_allocation_skills(&value);
+    let save = serde_json::from_value(value)
+        .map_err(|error| format!("could not parse JSON save: {error}"))?;
+    Ok((save, unknown_skills))
 }
 
 impl CoC7eApp {
@@ -45,6 +83,7 @@ impl CoC7eApp {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
+            rng_seed: self.rng_seed,
             luck_state: self.luck_state.clone(),
             age_deductions: self.age_deductions.clone(),
             edu_bonus: self.edu_bonus,
@@ -66,7 +105,28 @@ impl CoC7eApp {
         serde_json::to_string_pretty(&self.save_file())
     }
 
-    pub(crate) fn import_json_save(&mut self, input: &str) -> Result<(), String> {
+    pub(crate) fn save_json_to_path(&self, path: &Path) -> Result<(), String> {
+        if path.as_os_str().is_empty() {
+            return Err("enter a save path before saving".to_owned());
+        }
+        let json = self
+            .export_json_save()
+            .map_err(|error| format!("could not build JSON save: {error}"))?;
+        std::fs::write(path, json)
+            .map_err(|error| format!("could not write JSON save to {}: {error}", path.display()))
+    }
+
+    pub(crate) fn load_json_from_path(&mut self, path: &Path) -> Result<SanitizeReport, String> {
+        if path.as_os_str().is_empty() {
+            return Err("enter a save path before loading".to_owned());
+        }
+        let input = std::fs::read_to_string(path).map_err(|error| {
+            format!("could not read JSON save from {}: {error}", path.display())
+        })?;
+        self.import_json_save(&input)
+    }
+
+    pub(crate) fn import_json_save(&mut self, input: &str) -> Result<SanitizeReport, String> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Err("paste a JSON save before loading".to_owned());
@@ -74,18 +134,25 @@ impl CoC7eApp {
 
         let value: serde_json::Value = serde_json::from_str(trimmed)
             .map_err(|error| format!("could not parse JSON save: {error}"))?;
-        let save = migrate_save_value(value)?;
-        self.load_save_file(save);
-        Ok(())
+        let (save, unknown_skills) = migrate_save_value(value)?;
+        let mut report = self.load_save_file(save);
+        report.removed_unknown_skills.extend(unknown_skills);
+        Ok(report)
     }
 
-    pub(crate) fn load_save_file(&mut self, save: InvestigatorSaveFile) {
+    pub(crate) fn load_save_file(&mut self, save: InvestigatorSaveFile) -> SanitizeReport {
         self.concept = save.concept;
         self.concept.age = self.concept.age.clamp(15, 89);
         self.last_age_bracket_index = get_age_bracket_index(self.concept.age);
         self.char_method = save.char_method;
         self.chars = save.chars;
         self.char_rolls = save.char_rolls.into_iter().collect();
+        self.rng_seed = if save.rng_seed == 0 {
+            DEFAULT_RNG_SEED
+        } else {
+            save.rng_seed | 1
+        };
+        self.rng = AppRng::seeded(self.rng_seed);
         self.luck_state = save.luck_state;
         self.age_deductions = save.age_deductions;
         self.edu_bonus = save.edu_bonus.clamp(0, MAX_CREATION_VALUE);
@@ -129,7 +196,8 @@ impl CoC7eApp {
             })
             .collect();
 
-        self.sanitize_state();
+        let report = self.sanitize_state_with_report();
         self.refresh_reachability();
+        report
     }
 }

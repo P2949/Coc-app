@@ -134,12 +134,13 @@ impl CoC7eApp {
 
                             for row in skill_rows {
                                 let can_occ = allowed_occ.contains(&row.id);
-                                let can_personal = skill_accepts_personal_points(&row.name);
-                                let occ_max = self.occupation_allocation_max_for(&row.name);
-                                let personal_max = self.personal_allocation_max_for(&row.name);
-                                let note = if row.name == "Credit Rating" {
+                                let can_personal = skill_accepts_personal_points(row.id.name());
+                                let occ_max = CoC7eApp::occupation_allocation_max_from(&math, row);
+                                let personal_max =
+                                    CoC7eApp::personal_allocation_max_from(&math, row);
+                                let note = if row.id == Skill::CreditRating {
                                     "occupation-only at creation"
-                                } else if row.name == "Cthulhu Mythos" {
+                                } else if row.id == Skill::CthulhuMythos {
                                     "locked at creation"
                                 } else if can_occ {
                                     "occupation eligible"
@@ -171,7 +172,7 @@ impl CoC7eApp {
                                     )
                                     .changed()
                                 {
-                                    self.set_occupation_allocation(&row.name, occ_value);
+                                    self.set_occupation_allocation_for(row.id, occ_value);
                                 }
 
                                 let mut personal_value =
@@ -185,7 +186,7 @@ impl CoC7eApp {
                                     )
                                     .changed()
                                 {
-                                    self.set_personal_allocation(&row.name, personal_value);
+                                    self.set_personal_allocation_for(row.id, personal_value);
                                 }
 
                                 ui.label(

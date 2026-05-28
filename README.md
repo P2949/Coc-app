@@ -4,13 +4,13 @@ A native desktop helper for building Call of Cthulhu 7th Edition investigators.
 
 This is an unofficial fan-made character creation helper. It is not affiliated with, sponsored by, or endorsed by Chaosium Inc.
 
-The app is written in Rust with `eframe`/`egui`. It focuses on rules-aware investigator creation: characteristics, age adjustments, occupation choices, skill allocations, derived stats, backstory fields, JSON save/load for editable investigators, and a copyable summary.
+The app is written in Rust with `eframe`/`egui`. It focuses on rules-aware investigator creation: characteristics, age adjustments, occupation choices, skill allocations, derived stats, backstory fields, JSON save/load for editable investigators, file-path based save/load helpers, and a copyable summary.
 
 ## Current status
 
 This is a desktop binary application, not a published Cargo library. The crate is marked `publish = false` and is intended to be distributed through GitHub Releases.
 
-Official release binaries are distributed at no cost. The source code is free software under the GNU General Public License v3.0 or later.
+Official release binaries are distributed at no cost. The source code is free software under the GNU General Public License v3.0 or later. Early releases should still be treated as technical builds until their target-platform installers have been smoke-tested and, on Windows/macOS, signed or notarized.
 
 ## Requirements for local development
 
@@ -61,6 +61,15 @@ On Windows, the executable is:
 ```text
 target\release\coc7e_investigator_creator.exe
 ```
+
+
+## Save compatibility and custom skills
+
+Save files include a numeric schema version. Missing-version JSON is treated as a legacy v0 save and migrated into the current schema before parsing; future unsupported versions are rejected instead of being partially loaded. Imports still sanitize invalid data, but the UI reports when allocations or custom-skill labels had to be corrected.
+
+Custom occupations default to the standard eight occupation-skill slots, but the required count can be lowered for Keeper-approved custom or simplified occupations. Custom occupation skills may also have display labels such as `Language (Latin)`, `Pilot (Boat)`, or `Survival (Desert)` while keeping the underlying canonical rule skill for base values and allocation math.
+
+Dice rolls use the app's saved RNG seed as convenience roll evidence for character creation, not as cryptographic randomness. Stored characteristic, Luck, and EDU roll results remain the authoritative audit trail in the JSON save.
 
 ## Installer packaging
 
