@@ -172,7 +172,11 @@ impl CoC7eApp {
                                     )
                                     .changed()
                                 {
-                                    self.set_occupation_allocation_for(row.id, occ_value);
+                                    self.set_occupation_allocation_for_instance(
+                                        row.id,
+                                        row.custom_index,
+                                        occ_value,
+                                    );
                                 }
 
                                 let mut personal_value =
@@ -186,7 +190,11 @@ impl CoC7eApp {
                                     )
                                     .changed()
                                 {
-                                    self.set_personal_allocation_for(row.id, personal_value);
+                                    self.set_personal_allocation_for_instance(
+                                        row.id,
+                                        row.custom_index,
+                                        personal_value,
+                                    );
                                 }
 
                                 ui.label(

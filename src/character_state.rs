@@ -55,6 +55,8 @@ impl CoC7eApp {
     }
 
     pub(crate) fn roll_die(&mut self, sides: u32) -> u32 {
+        let sides = sides.max(1);
+        self.rng_roll_sides.push(sides);
         self.rng.roll_inclusive(sides)
     }
 

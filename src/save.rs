@@ -35,10 +35,12 @@ fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
 fn migrate_save_value(
     mut value: serde_json::Value,
 ) -> Result<(InvestigatorSaveFile, Vec<String>), String> {
-    let version = value
-        .get("version")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
+    let version = match value.get("version") {
+        None => 0,
+        Some(raw) => raw
+            .as_u64()
+            .ok_or_else(|| "save version must be a non-negative integer".to_owned())?,
+    };
 
     match version {
         0 => migrate_v0_to_v1(&mut value),
@@ -84,6 +86,7 @@ impl CoC7eApp {
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
             rng_seed: self.rng_seed,
+            rng_roll_sides: self.rng_roll_sides.clone(),
             luck_state: self.luck_state.clone(),
             age_deductions: self.age_deductions.clone(),
             edu_bonus: self.edu_bonus,
@@ -150,9 +153,27 @@ impl CoC7eApp {
         self.rng_seed = if save.rng_seed == 0 {
             DEFAULT_RNG_SEED
         } else {
-            save.rng_seed | 1
+            save.rng_seed
         };
-        self.rng = AppRng::seeded(self.rng_seed);
+        let mut rng = AppRng::seeded(self.rng_seed);
+        let mut normalized_rng_state = save.rng_seed == 0;
+        let replay_sides: Vec<u32> = save
+            .rng_roll_sides
+            .into_iter()
+            .filter(|sides| {
+                if *sides == 0 {
+                    normalized_rng_state = true;
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+        for sides in &replay_sides {
+            let _ = rng.roll_inclusive(*sides);
+        }
+        self.rng_roll_sides = replay_sides;
+        self.rng = rng;
         self.luck_state = save.luck_state;
         self.age_deductions = save.age_deductions;
         self.edu_bonus = save.edu_bonus.clamp(0, MAX_CREATION_VALUE);
@@ -183,20 +204,26 @@ impl CoC7eApp {
         self.custom_occupation = save.custom_occupation;
         self.allocations = save.allocations;
         let allowed_backstory: HashSet<&str> = BACKSTORY_CATEGORIES.iter().copied().collect();
+        let mut removed_backstory_categories = Vec::new();
         self.backstory = save
             .backstory
             .into_iter()
             .filter_map(|(category, value)| {
-                let category = category.trim();
-                if !allowed_backstory.contains(category) || value.trim().is_empty() {
+                let trimmed_category = category.trim();
+                if !allowed_backstory.contains(trimmed_category) || value.trim().is_empty() {
+                    removed_backstory_categories.push(category);
                     None
                 } else {
-                    Some((category.to_owned(), value))
+                    Some((trimmed_category.to_owned(), value))
                 }
             })
             .collect();
 
-        let report = self.sanitize_state_with_report();
+        let mut report = self.sanitize_state_with_report();
+        report.normalized_rng_state |= normalized_rng_state;
+        report
+            .removed_backstory_categories
+            .extend(removed_backstory_categories);
         self.refresh_reachability();
         report
     }

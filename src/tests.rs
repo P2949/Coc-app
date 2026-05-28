@@ -1505,7 +1505,7 @@ fn sanitize_custom_occupation_cleans_raw_imported_state() {
             "Library Use".to_owned(),
             String::new(),
             String::new(),
-            String::new(),
+            "Library Use".to_owned(),
             String::new(),
             "Spot Hidden".to_owned(),
             String::new(),
@@ -2784,11 +2784,169 @@ fn custom_occupation_skill_labels_drive_display_without_changing_canonical_skill
         .expect("Language (Other) row should exist");
     assert_eq!(row.name.as_str(), "Language (Latin)");
 
-    app.set_occupation_allocation_for(Skill::LanguageOther, 20);
-    assert_eq!(
-        app.allocations.occupation_points.get(&Skill::LanguageOther),
-        Some(&20)
+    app.set_occupation_allocation_for_instance(Skill::LanguageOther, Some(0), 20);
+    assert_eq!(app.allocations.custom_occupation_points.get(&0), Some(&20));
+}
+
+#[test]
+fn custom_occupation_duplicate_specialties_get_independent_rows_and_allocations() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
     );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill_label_for_slot(0, "Language (Latin)".to_owned()));
+    assert!(app.set_custom_occupation_skill_label_for_slot(1, "Language (Greek)".to_owned()));
+
+    let math = app.sheet_math();
+    let language_rows: Vec<_> = math
+        .skill_rows
+        .iter()
+        .filter(|row| row.id == Skill::LanguageOther)
+        .collect();
+    assert_eq!(language_rows.len(), 2);
+    assert!(
+        language_rows
+            .iter()
+            .any(|row| row.name == "Language (Latin)")
+    );
+    assert!(
+        language_rows
+            .iter()
+            .any(|row| row.name == "Language (Greek)")
+    );
+
+    app.set_occupation_allocation_for_instance(Skill::LanguageOther, Some(0), 15);
+    app.set_occupation_allocation_for_instance(Skill::LanguageOther, Some(1), 25);
+    assert_eq!(app.allocations.custom_occupation_points.get(&0), Some(&15));
+    assert_eq!(app.allocations.custom_occupation_points.get(&1), Some(&25));
+}
+
+#[test]
+fn lowering_custom_required_skill_count_preserves_inactive_slots() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    let skills = [
+        "Accounting",
+        "Anthropology",
+        "Appraise",
+        "Archaeology",
+        "Charm",
+        "Climb",
+        "Disguise",
+        "Dodge",
+    ];
+    for (index, skill) in skills.iter().enumerate() {
+        assert!(app.set_custom_occupation_skill(index, (*skill).to_owned()));
+    }
+
+    app.set_custom_occupation_required_skill_count(3);
+    app.sanitize_state();
+    assert_eq!(app.custom_occupation.skills[4], "Charm");
+
+    app.set_custom_occupation_required_skill_count(8);
+    let occupation = app
+        .selected_occupation()
+        .expect("custom occupation should exist");
+    assert_eq!(app.unique_occupation_shortfall_for(&occupation), 0);
+    assert_eq!(app.resolved_occupation_skills_for(&occupation).len(), 8);
+}
+
+#[test]
+fn json_import_rejects_present_but_malformed_save_versions() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+
+    for version in [
+        serde_json::json!("1"),
+        serde_json::json!(null),
+        serde_json::json!(-1),
+    ] {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&json).expect("exported save should parse");
+        value["version"] = version;
+        let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+        let mut loaded = test_app();
+        let error = loaded
+            .import_json_save(&edited_json)
+            .expect_err("malformed version should be rejected");
+        assert!(
+            error.contains("save version must be a non-negative integer"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[test]
+fn rng_roll_history_restores_next_roll_position() {
+    let mut source = test_app();
+    let _ = source.roll_die(6);
+    let _ = source.roll_die(100);
+    let _ = source.roll_die(10);
+
+    let json = source.export_json_save().expect("save should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    assert_eq!(value["rng_roll_sides"], serde_json::json!([6, 100, 10]));
+
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("save should import cleanly");
+    assert_eq!(loaded.rng_roll_sides, vec![6, 100, 10]);
+    assert_eq!(loaded.roll_die(6), source.roll_die(6));
+}
+
+#[test]
+fn import_report_includes_non_allocation_corrections() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&json).expect("exported save should parse");
+    value["chars"]["STR"] = serde_json::json!(999);
+    value["char_rolls"]["STR"] = serde_json::json!({
+        "rolls": [1, 1, 1],
+        "plus_six": false,
+        "value": 15,
+        "kept": null
+    });
+    value["luck_state"] = serde_json::json!({
+        "value": 15,
+        "rolls": []
+    });
+    value["backstory"]["Bogus"] = serde_json::json!("discard me");
+    value["rng_seed"] = serde_json::json!(0);
+    value["rng_roll_sides"] = serde_json::json!([6, 0, 10]);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("sanitized save should import");
+
+    assert!(!report.clamped_characteristics.is_empty(), "{report:?}");
+    assert!(
+        !report.removed_characteristic_rolls.is_empty(),
+        "{report:?}"
+    );
+    assert!(report.reset_luck, "{report:?}");
+    assert!(
+        !report.removed_backstory_categories.is_empty(),
+        "{report:?}"
+    );
+    assert!(report.normalized_rng_state, "{report:?}");
 }
 
 #[test]

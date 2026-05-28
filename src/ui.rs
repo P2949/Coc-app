@@ -48,7 +48,7 @@ impl CoC7eApp {
         let mut startup_validation_errors = skill_constant_validation_errors();
         startup_validation_errors.extend(occupation_validation_errors(&occupations));
 
-        let mut app = Self::fresh(occupations, seed | 1);
+        let mut app = Self::fresh(occupations, seed);
         app.startup_validation_errors = startup_validation_errors;
         app
     }
@@ -80,6 +80,7 @@ impl CoC7eApp {
             last_age_bracket_index: age_index,
             frame_max_reachable_step: 2,
             rng_seed: rng_state,
+            rng_roll_sides: Vec::new(),
             rng: AppRng::seeded(rng_state),
         }
     }
@@ -91,7 +92,7 @@ impl CoC7eApp {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos() as u64)
             .unwrap_or(DEFAULT_RNG_SEED);
-        *self = Self::fresh(occupations, seed | 1);
+        *self = Self::fresh(occupations, seed);
         self.startup_validation_errors = startup_validation_errors;
     }
 

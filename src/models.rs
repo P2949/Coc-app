@@ -6,6 +6,7 @@ use eframe::egui;
 use egui::{Color32, RichText, Stroke};
 
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 pub(crate) fn apply_dark_theme(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
@@ -333,18 +334,16 @@ pub(crate) fn calculate_derived(
     }
 }
 
-pub(crate) fn set_allocation(
-    map: &mut HashMap<Skill, i32>,
-    skill: Skill,
-    value: i32,
-    max_value: i32,
-) {
+pub(crate) fn set_allocation<K>(map: &mut HashMap<K, i32>, key: K, value: i32, max_value: i32)
+where
+    K: Eq + Hash,
+{
     let value = value.clamp(0, max_value.clamp(0, MAX_CREATION_VALUE));
 
     if value == 0 {
-        map.remove(&skill);
+        map.remove(&key);
     } else {
-        map.insert(skill, value);
+        map.insert(key, value);
     }
 }
 
@@ -559,6 +558,7 @@ pub(crate) fn validate_skill_constants() {
     );
 }
 
+#[cfg(test)]
 pub(crate) fn unique_strings<I>(values: I) -> Vec<String>
 where
     I: IntoIterator<Item = String>,

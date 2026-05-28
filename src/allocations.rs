@@ -1,16 +1,13 @@
 use super::data::*;
 use super::models::*;
 use super::ruleset::SKILL_SPECS;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) fn skill_accepts_personal_points(skill: &str) -> bool {
     skill != "Credit Rating" && skill != "Cthulhu Mythos"
 }
 
-pub(crate) fn skill_accepts_occupation_points(
-    skill: Skill,
-    allowed: &std::collections::HashSet<Skill>,
-) -> bool {
+pub(crate) fn skill_accepts_occupation_points(skill: Skill, allowed: &HashSet<Skill>) -> bool {
     allowed.contains(&skill)
 }
 
@@ -21,6 +18,18 @@ pub(crate) fn sanitized_allocation_value(
 ) -> i32 {
     allocations
         .get(&skill)
+        .copied()
+        .unwrap_or(0)
+        .clamp(0, max_value.clamp(0, MAX_CREATION_VALUE))
+}
+
+fn sanitized_custom_allocation_value(
+    allocations: &HashMap<usize, i32>,
+    index: usize,
+    max_value: i32,
+) -> i32 {
+    allocations
+        .get(&index)
         .copied()
         .unwrap_or(0)
         .clamp(0, max_value.clamp(0, MAX_CREATION_VALUE))
@@ -48,14 +57,44 @@ fn record_allocation_changes(
     }
 }
 
+fn record_custom_allocation_changes(
+    report: &mut SanitizeReport,
+    label: &str,
+    before: &HashMap<usize, i32>,
+    after: &HashMap<usize, i32>,
+) {
+    for (index, old_value) in before {
+        match after.get(index) {
+            Some(new_value) if new_value < old_value => report.clamped_allocations.push(format!(
+                "{label} custom skill slot {}: {} → {}",
+                index + 1,
+                old_value,
+                new_value
+            )),
+            Some(_) => {}
+            None => report
+                .removed_allocations
+                .push(format!("{label} custom skill slot {}", index + 1)),
+        }
+    }
+}
+
 impl CoC7eApp {
     pub(crate) fn skill_rows_for(
         &self,
         final_chars: &CharacteristicValues,
-        occupation_skill_set: &std::collections::HashSet<Skill>,
+        occupation_skill_set: &HashSet<Skill>,
     ) -> Vec<SkillRow> {
-        SKILL_SPECS
+        let custom_slots = if self.occupation_id == CUSTOM_OCCUPATION_ID {
+            self.custom_occupation_skill_slots()
+        } else {
+            Vec::new()
+        };
+        let custom_bases: HashSet<Skill> = custom_slots.iter().map(|(_, skill)| *skill).collect();
+
+        let mut rows: Vec<SkillRow> = SKILL_SPECS
             .iter()
+            .filter(|skill| !custom_bases.contains(&skill.id))
             .map(|skill| {
                 let base = get_base_skill_for(skill.id, final_chars);
                 let occ_add = if skill_accepts_occupation_points(skill.id, occupation_skill_set) {
@@ -67,7 +106,6 @@ impl CoC7eApp {
                 } else {
                     0
                 };
-                let display_name = self.custom_skill_display_name(skill.id);
                 let personal_add = if skill_accepts_personal_points(skill.name) {
                     sanitized_allocation_value(
                         &self.allocations.personal_points,
@@ -79,14 +117,53 @@ impl CoC7eApp {
                 };
                 SkillRow {
                     id: skill.id,
-                    name: display_name,
+                    custom_index: None,
+                    name: skill.name.to_owned(),
                     base,
                     occ_add,
                     personal_add,
                     total: base + occ_add + personal_add,
                 }
             })
-            .collect()
+            .collect();
+
+        for (index, skill_id) in custom_slots {
+            let base = get_base_skill_for(skill_id, final_chars);
+            let occ_add = if skill_accepts_occupation_points(skill_id, occupation_skill_set) {
+                sanitized_custom_allocation_value(
+                    &self.allocations.custom_occupation_points,
+                    index,
+                    MAX_CREATION_VALUE - base,
+                )
+            } else {
+                0
+            };
+            let personal_add = if skill_accepts_personal_points(skill_id.name()) {
+                sanitized_custom_allocation_value(
+                    &self.allocations.custom_personal_points,
+                    index,
+                    MAX_CREATION_VALUE - base - occ_add,
+                )
+            } else {
+                0
+            };
+            rows.push(SkillRow {
+                id: skill_id,
+                custom_index: Some(index),
+                name: self.custom_skill_display_name_for_slot(index, skill_id),
+                base,
+                occ_add,
+                personal_add,
+                total: base + occ_add + personal_add,
+            });
+        }
+
+        rows.sort_by(|left, right| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left.custom_index.cmp(&right.custom_index))
+        });
+        rows
     }
 
     pub(crate) fn derived_for(
@@ -148,10 +225,14 @@ impl CoC7eApp {
     pub(crate) fn sanitize_allocations_with_report(&mut self) -> SanitizeReport {
         let before_occupation = self.allocations.occupation_points.clone();
         let before_personal = self.allocations.personal_points.clone();
+        let before_custom_occupation = self.allocations.custom_occupation_points.clone();
+        let before_custom_personal = self.allocations.custom_personal_points.clone();
         let math = self.sheet_math();
         let enforce_total_budgets = self.has_all_chars();
         let mut occupation_points = HashMap::new();
         let mut personal_points = HashMap::new();
+        let mut custom_occupation_points = HashMap::new();
+        let mut custom_personal_points = HashMap::new();
         let mut remaining_occupation = math.occupation_budget.max(0);
         let mut remaining_personal = math.personal_budget.max(0);
 
@@ -175,15 +256,25 @@ impl CoC7eApp {
             };
 
             if occ_add > 0 {
-                occupation_points.insert(row.id, occ_add);
+                if let Some(index) = row.custom_index {
+                    custom_occupation_points.insert(index, occ_add);
+                } else {
+                    occupation_points.insert(row.id, occ_add);
+                }
             }
             if personal_add > 0 {
-                personal_points.insert(row.id, personal_add);
+                if let Some(index) = row.custom_index {
+                    custom_personal_points.insert(index, personal_add);
+                } else {
+                    personal_points.insert(row.id, personal_add);
+                }
             }
         }
 
         self.allocations.occupation_points = occupation_points;
         self.allocations.personal_points = personal_points;
+        self.allocations.custom_occupation_points = custom_occupation_points;
+        self.allocations.custom_personal_points = custom_personal_points;
 
         let mut report = SanitizeReport::default();
         record_allocation_changes(
@@ -197,6 +288,18 @@ impl CoC7eApp {
             "personal",
             &before_personal,
             &self.allocations.personal_points,
+        );
+        record_custom_allocation_changes(
+            &mut report,
+            "occupation",
+            &before_custom_occupation,
+            &self.allocations.custom_occupation_points,
+        );
+        record_custom_allocation_changes(
+            &mut report,
+            "personal",
+            &before_custom_personal,
+            &self.allocations.custom_personal_points,
         );
         report
     }
@@ -225,14 +328,22 @@ impl CoC7eApp {
 
     pub(crate) fn clear_occupation_allocations(&mut self) {
         self.allocations.occupation_points.clear();
+        self.allocations.custom_occupation_points.clear();
     }
 
     pub(crate) fn clear_personal_allocations(&mut self) {
         self.allocations.personal_points.clear();
+        self.allocations.custom_personal_points.clear();
     }
 
-    fn allocation_row_for_skill(math: &SheetMath, skill: Skill) -> Option<&SkillRow> {
-        math.skill_rows.iter().find(|row| row.id == skill)
+    fn allocation_row_for_instance(
+        math: &SheetMath,
+        skill: Skill,
+        custom_index: Option<usize>,
+    ) -> Option<&SkillRow> {
+        math.skill_rows
+            .iter()
+            .find(|row| row.id == skill && row.custom_index == custom_index)
     }
 
     pub(crate) fn occupation_allocation_max_from(math: &SheetMath, row: &SkillRow) -> i32 {
@@ -262,26 +373,60 @@ impl CoC7eApp {
         per_skill_cap.min(budget_cap)
     }
 
-    pub(crate) fn occupation_allocation_max_for_id(&self, skill: Skill) -> i32 {
+    pub(crate) fn occupation_allocation_max_for_instance(
+        &self,
+        skill: Skill,
+        custom_index: Option<usize>,
+    ) -> i32 {
         let math = self.sheet_math();
-        let Some(row) = Self::allocation_row_for_skill(&math, skill) else {
+        let Some(row) = Self::allocation_row_for_instance(&math, skill, custom_index) else {
             return 0;
         };
         Self::occupation_allocation_max_from(&math, row)
     }
 
-    pub(crate) fn personal_allocation_max_for_id(&self, skill: Skill) -> i32 {
+    pub(crate) fn personal_allocation_max_for_instance(
+        &self,
+        skill: Skill,
+        custom_index: Option<usize>,
+    ) -> i32 {
         let math = self.sheet_math();
-        let Some(row) = Self::allocation_row_for_skill(&math, skill) else {
+        let Some(row) = Self::allocation_row_for_instance(&math, skill, custom_index) else {
             return 0;
         };
         Self::personal_allocation_max_from(&math, row)
     }
 
+    #[cfg(test)]
     pub(crate) fn set_occupation_allocation_for(&mut self, skill_id: Skill, value: i32) {
-        let max_value = self.occupation_allocation_max_for_id(skill_id);
+        self.set_occupation_allocation_for_instance(skill_id, None, value);
+    }
 
-        if max_value > 0 {
+    #[cfg(test)]
+    pub(crate) fn set_personal_allocation_for(&mut self, skill_id: Skill, value: i32) {
+        self.set_personal_allocation_for_instance(skill_id, None, value);
+    }
+
+    pub(crate) fn set_occupation_allocation_for_instance(
+        &mut self,
+        skill_id: Skill,
+        custom_index: Option<usize>,
+        value: i32,
+    ) {
+        let max_value = self.occupation_allocation_max_for_instance(skill_id, custom_index);
+
+        if let Some(index) = custom_index {
+            if max_value > 0 {
+                set_allocation(
+                    &mut self.allocations.custom_occupation_points,
+                    index,
+                    value,
+                    max_value,
+                );
+            } else {
+                self.allocations.custom_occupation_points.remove(&index);
+            }
+        } else if max_value > 0 {
             set_allocation(
                 &mut self.allocations.occupation_points,
                 skill_id,
@@ -293,10 +438,26 @@ impl CoC7eApp {
         }
     }
 
-    pub(crate) fn set_personal_allocation_for(&mut self, skill_id: Skill, value: i32) {
-        let max_value = self.personal_allocation_max_for_id(skill_id);
+    pub(crate) fn set_personal_allocation_for_instance(
+        &mut self,
+        skill_id: Skill,
+        custom_index: Option<usize>,
+        value: i32,
+    ) {
+        let max_value = self.personal_allocation_max_for_instance(skill_id, custom_index);
 
-        if max_value > 0 {
+        if let Some(index) = custom_index {
+            if max_value > 0 {
+                set_allocation(
+                    &mut self.allocations.custom_personal_points,
+                    index,
+                    value,
+                    max_value,
+                );
+            } else {
+                self.allocations.custom_personal_points.remove(&index);
+            }
+        } else if max_value > 0 {
             set_allocation(
                 &mut self.allocations.personal_points,
                 skill_id,

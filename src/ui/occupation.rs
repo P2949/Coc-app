@@ -141,7 +141,7 @@ impl CoC7eApp {
                         pill(
                             ui,
                             format!(
-                                "Need {shortfall} more unique occupation skill{}",
+                                "Need {shortfall} more occupation skill{}",
                                 if shortfall > 1 { "s" } else { "" }
                             ),
                             AMBER,
@@ -150,18 +150,29 @@ impl CoC7eApp {
                 });
 
                 ui.add_space(10.0);
-                for slot in &occupation.slots {
-                    match slot {
-                        Slot::Skill(skill) => {
-                            pill(ui, self.custom_skill_display_name(*skill), MUTED);
-                            ui.add_space(4.0);
+                if self.occupation_id == CUSTOM_OCCUPATION_ID {
+                    for (index, skill) in self.custom_occupation_skill_slots() {
+                        pill(
+                            ui,
+                            self.custom_skill_display_name_for_slot(index, skill),
+                            MUTED,
+                        );
+                        ui.add_space(4.0);
+                    }
+                } else {
+                    for slot in &occupation.slots {
+                        match slot {
+                            Slot::Skill(skill) => {
+                                pill(ui, skill.name(), MUTED);
+                                ui.add_space(4.0);
+                            }
+                            Slot::Choice {
+                                id,
+                                label,
+                                options,
+                                count,
+                            } => self.render_choice_slot(ui, id, label, options, *count, &fixed),
                         }
-                        Slot::Choice {
-                            id,
-                            label,
-                            options,
-                            count,
-                        } => self.render_choice_slot(ui, id, label, options, *count, &fixed),
                     }
                 }
 
@@ -179,9 +190,17 @@ impl CoC7eApp {
                                 .small()
                                 .color(MUTED),
                         );
+                    } else if self.occupation_id == CUSTOM_OCCUPATION_ID {
+                        for (index, skill) in self.custom_occupation_skill_slots() {
+                            pill(
+                                ui,
+                                self.custom_skill_display_name_for_slot(index, skill),
+                                ACCENT,
+                            );
+                        }
                     } else {
                         for skill in resolved {
-                            pill(ui, self.custom_skill_display_name(skill), ACCENT);
+                            pill(ui, skill.name(), ACCENT);
                         }
                     }
                     pill(ui, "Credit Rating", AMBER);
@@ -333,8 +352,8 @@ impl CoC7eApp {
                             ui.vertical(|ui| {
                                 let current_label = self
                                     .custom_occupation
-                                    .skill_labels
-                                    .get(skill.name())
+                                    .skill_slot_labels
+                                    .get(&index)
                                     .cloned()
                                     .unwrap_or_default();
                                 let mut label = current_label.clone();
@@ -347,9 +366,9 @@ impl CoC7eApp {
                                     ),
                                 );
                                 if label != current_label {
-                                    self.set_custom_occupation_skill_label(skill, label);
+                                    self.set_custom_occupation_skill_label_for_slot(index, label);
                                 }
-                                let display = self.custom_skill_display_name(skill);
+                                let display = self.custom_skill_display_name_for_slot(index, skill);
                                 if display != skill.name() {
                                     ui.label(
                                         RichText::new(format!("Shown as {display}"))

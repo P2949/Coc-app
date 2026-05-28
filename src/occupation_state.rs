@@ -1,6 +1,6 @@
 use super::data::*;
-use super::models::*;
 use super::occupations::*;
+use super::ruleset::CHARACTERISTICS;
 use std::collections::{HashMap, HashSet};
 
 impl CoC7eApp {
@@ -50,25 +50,29 @@ impl CoC7eApp {
             .truncate(CUSTOM_OCCUPATION_SKILL_COUNT);
     }
 
-    pub(crate) fn custom_skill_display_name(&self, skill: Skill) -> String {
-        if self.occupation_id == CUSTOM_OCCUPATION_ID {
-            let key = skill.name();
-            if let Some(label) = self.custom_occupation.skill_labels.get(key) {
-                let trimmed = label.trim();
-                if !trimmed.is_empty() {
-                    return trimmed.to_owned();
-                }
+    pub(crate) fn custom_skill_display_name_for_slot(&self, index: usize, skill: Skill) -> String {
+        if let Some(label) = self.custom_occupation.skill_slot_labels.get(&index) {
+            let trimmed = label.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_owned();
+            }
+        }
+        if let Some(label) = self.custom_occupation.skill_labels.get(skill.name()) {
+            let trimmed = label.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_owned();
             }
         }
         skill.name().to_owned()
     }
 
-    fn selected_custom_skill_set(&self) -> HashSet<Skill> {
+    pub(crate) fn custom_occupation_skill_slots(&self) -> Vec<(usize, Skill)> {
         self.custom_occupation
             .skills
             .iter()
             .take(self.custom_occupation_required_skill_count())
-            .filter_map(|skill| Skill::from_name(skill.trim()))
+            .enumerate()
+            .filter_map(|(index, skill)| Skill::from_name(skill.trim()).map(|skill| (index, skill)))
             .collect()
     }
 
@@ -77,14 +81,9 @@ impl CoC7eApp {
         self.custom_occupation.credit_max = self.custom_occupation.credit_max.clamp(0, 99);
         self.normalize_custom_occupation_skills();
 
-        let required_count = self.custom_occupation_required_skill_count();
-        let mut seen = HashSet::new();
-        for (index, skill) in self.custom_occupation.skills.iter_mut().enumerate() {
+        for skill in &mut self.custom_occupation.skills {
             let normalized = skill.trim().to_owned();
-            if index >= required_count
-                || normalized.is_empty()
-                || !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str())
-                || !seen.insert(normalized.clone())
+            if normalized.is_empty() || !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str())
             {
                 skill.clear();
             } else {
@@ -92,14 +91,57 @@ impl CoC7eApp {
             }
         }
 
-        let selected = self.selected_custom_skill_set();
+        let required_count = self.custom_occupation_required_skill_count();
+        let mut active_slots_by_skill: HashMap<Skill, Vec<usize>> = HashMap::new();
+        for (index, skill) in self
+            .custom_occupation
+            .skills
+            .iter()
+            .take(required_count)
+            .enumerate()
+        {
+            if let Some(skill) = Skill::from_name(skill.trim()) {
+                active_slots_by_skill.entry(skill).or_default().push(index);
+            }
+        }
+
+        for indices in active_slots_by_skill.values() {
+            if indices.len() < 2 {
+                continue;
+            }
+
+            let mut seen_labels = HashSet::new();
+            let has_distinct_slot_labels = indices.iter().all(|index| {
+                let label = self
+                    .custom_occupation
+                    .skill_slot_labels
+                    .get(index)
+                    .map(|label| label.trim())
+                    .unwrap_or_default();
+                !label.is_empty() && seen_labels.insert(label.to_owned())
+            });
+
+            if !has_distinct_slot_labels {
+                for index in indices.iter().skip(1) {
+                    self.custom_occupation.skills[*index].clear();
+                    self.custom_occupation.skill_slot_labels.remove(index);
+                }
+            }
+        }
+
+        let all_valid_skills: HashSet<Skill> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .filter_map(|skill| Skill::from_name(skill.trim()))
+            .collect();
         self.custom_occupation
             .skill_labels
             .retain(|skill_name, label| {
                 let Some(skill) = Skill::from_name(skill_name.trim()) else {
                     return false;
                 };
-                selected.contains(&skill) && !label.trim().is_empty()
+                all_valid_skills.contains(&skill) && !label.trim().is_empty()
             });
         let normalized_labels: Vec<(String, String)> = self
             .custom_occupation
@@ -110,6 +152,35 @@ impl CoC7eApp {
         self.custom_occupation.skill_labels.clear();
         for (skill, label) in normalized_labels {
             self.custom_occupation.skill_labels.insert(skill, label);
+        }
+
+        let valid_labeled_slots: HashSet<usize> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .enumerate()
+            .filter_map(|(index, skill)| {
+                if skill.trim().is_empty() {
+                    None
+                } else {
+                    Some(index)
+                }
+            })
+            .collect();
+        self.custom_occupation
+            .skill_slot_labels
+            .retain(|index, label| valid_labeled_slots.contains(index) && !label.trim().is_empty());
+        let normalized_slot_labels: Vec<(usize, String)> = self
+            .custom_occupation
+            .skill_slot_labels
+            .iter()
+            .map(|(index, label)| (*index, label.trim().chars().take(64).collect()))
+            .collect();
+        self.custom_occupation.skill_slot_labels.clear();
+        for (index, label) in normalized_slot_labels {
+            self.custom_occupation
+                .skill_slot_labels
+                .insert(index, label);
         }
     }
 
@@ -176,25 +247,26 @@ impl CoC7eApp {
     pub(crate) fn build_custom_occupation(&self) -> Occupation {
         let min = self.custom_occupation.credit_min.clamp(0, 99);
         let max = self.custom_occupation.credit_max.clamp(0, 99);
-        let skills = unique_strings(
-            self.custom_occupation
-                .skills
-                .iter()
-                .take(self.custom_occupation_required_skill_count())
-                .map(|skill| skill.trim().to_owned())
-                .filter(|skill| {
-                    !skill.is_empty() && OCCUPATION_SELECTABLE_SKILLS.contains(&skill.as_str())
-                }),
-        );
+        let skills: Vec<Skill> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .take(self.custom_occupation_required_skill_count())
+            .filter_map(|skill| {
+                let skill = skill.trim();
+                if skill.is_empty() || !OCCUPATION_SELECTABLE_SKILLS.contains(&skill) {
+                    None
+                } else {
+                    Skill::from_name(skill)
+                }
+            })
+            .collect();
 
         Occupation {
             name: self.selected_occupation_name(),
             credit: (min.min(max), min.max(max)),
             formula_keys: vec![self.custom_occupation.formula_key],
-            slots: skills
-                .into_iter()
-                .filter_map(|skill| Skill::from_name(&skill).map(Slot::Skill))
-                .collect(),
+            slots: skills.into_iter().map(Slot::Skill).collect(),
         }
     }
 
@@ -263,23 +335,43 @@ impl CoC7eApp {
         self.prune_occupation_allocations();
     }
 
-    pub(crate) fn set_custom_occupation_skill_label(&mut self, skill: Skill, next: String) -> bool {
-        if !self.selected_custom_skill_set().contains(&skill) {
-            self.custom_occupation.skill_labels.remove(skill.name());
+    pub(crate) fn set_custom_occupation_skill_label_for_slot(
+        &mut self,
+        index: usize,
+        next: String,
+    ) -> bool {
+        self.normalize_custom_occupation_skills();
+        if index >= self.custom_occupation_required_skill_count()
+            || Skill::from_name(self.custom_occupation.skills[index].trim()).is_none()
+        {
+            self.custom_occupation.skill_slot_labels.remove(&index);
             return false;
         }
 
         let normalized = next.trim();
-        if normalized.is_empty() || normalized == skill.name() {
-            self.custom_occupation.skill_labels.remove(skill.name());
+        if normalized.is_empty() {
+            self.custom_occupation.skill_slot_labels.remove(&index);
             return true;
         }
 
         let normalized = normalized.chars().take(64).collect::<String>();
         self.custom_occupation
-            .skill_labels
-            .insert(skill.name().to_owned(), normalized);
+            .skill_slot_labels
+            .insert(index, normalized);
         true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_custom_occupation_skill_label(&mut self, skill: Skill, next: String) -> bool {
+        let Some((index, _)) = self
+            .custom_occupation_skill_slots()
+            .into_iter()
+            .find(|(_, slot_skill)| *slot_skill == skill)
+        else {
+            self.custom_occupation.skill_labels.remove(skill.name());
+            return false;
+        };
+        self.set_custom_occupation_skill_label_for_slot(index, next)
     }
 
     pub(crate) fn set_custom_occupation_skill(&mut self, index: usize, next: String) -> bool {
@@ -290,9 +382,7 @@ impl CoC7eApp {
 
         let normalized = next.trim().to_owned();
         if normalized.is_empty() {
-            if let Some(old_skill) = Skill::from_name(self.custom_occupation.skills[index].trim()) {
-                self.custom_occupation.skill_labels.remove(old_skill.name());
-            }
+            self.custom_occupation.skill_slot_labels.remove(&index);
             self.custom_occupation.skills[index].clear();
             self.prune_occupation_allocations();
             return true;
@@ -300,20 +390,10 @@ impl CoC7eApp {
         if !OCCUPATION_SELECTABLE_SKILLS.contains(&normalized.as_str()) {
             return false;
         }
-        if self
-            .custom_occupation
-            .skills
-            .iter()
-            .enumerate()
-            .any(|(other_index, value)| other_index != index && value.trim() == normalized.as_str())
-        {
-            return false;
-        }
-
         if let Some(old_skill) = Skill::from_name(self.custom_occupation.skills[index].trim())
             && old_skill.name() != normalized.as_str()
         {
-            self.custom_occupation.skill_labels.remove(old_skill.name());
+            self.custom_occupation.skill_slot_labels.remove(&index);
         }
         self.custom_occupation.skills[index] = normalized;
         self.prune_occupation_allocations();
@@ -365,7 +445,7 @@ impl CoC7eApp {
         let mut seen = HashSet::new();
         for slot in &occupation.slots {
             if let Slot::Skill(skill) = slot
-                && seen.insert(*skill)
+                && (self.occupation_id == CUSTOM_OCCUPATION_ID || seen.insert(*skill))
             {
                 resolved.push(*skill);
             }
@@ -463,7 +543,16 @@ impl CoC7eApp {
     }
 
     pub(crate) fn sanitize_state_with_report(&mut self) -> SanitizeReport {
-        let label_count_before = self.custom_occupation.skill_labels.len();
+        let custom_before = self.custom_occupation.clone();
+        let chars_before = self.chars.clone();
+        let char_rolls_before: HashSet<String> = self.char_rolls.keys().cloned().collect();
+        let luck_before = self.luck_state.clone();
+        let edu_checks_before = self.edu_check_rolls.clone();
+        let edu_bonus_before = self.edu_bonus;
+        let age_deductions_before = self.age_deductions.clone();
+        let formula_before = self.formula_key;
+        let occupation_choices_before = self.occupation_choices.clone();
+
         self.sanitize_custom_occupation();
         let selected_occupation = self.selected_occupation();
 
@@ -480,12 +569,41 @@ impl CoC7eApp {
         self.sanitize_edu_age_checks();
         self.sanitize_age_deductions();
         let mut report = self.sanitize_allocations_with_report();
-        let removed_labels =
-            label_count_before.saturating_sub(self.custom_occupation.skill_labels.len());
-        for _ in 0..removed_labels {
-            report
-                .removed_unknown_skills
-                .push("custom occupation skill label".to_owned());
+
+        for def in CHARACTERISTICS {
+            let before = chars_before.get_char(def.key);
+            let after = self.chars.get_char(def.key);
+            if before != after {
+                report
+                    .clamped_characteristics
+                    .push(format!("{}: {before} → {after}", def.key.key()));
+            }
+        }
+        for key in char_rolls_before {
+            if !self.char_rolls.contains_key(&key) {
+                report.removed_characteristic_rolls.push(key);
+            }
+        }
+        report.reset_luck = luck_before != self.luck_state && self.luck_state.value.is_none();
+        report.normalized_edu_checks =
+            edu_checks_before != self.edu_check_rolls || edu_bonus_before != self.edu_bonus;
+        report.normalized_age_deductions = age_deductions_before != self.age_deductions;
+        report.normalized_formula = formula_before != self.formula_key;
+        report.normalized_custom_occupation = custom_before.name.trim()
+            != self.custom_occupation.name.trim()
+            || custom_before.credit_min != self.custom_occupation.credit_min
+            || custom_before.credit_max != self.custom_occupation.credit_max
+            || custom_before.required_skill_count != self.custom_occupation.required_skill_count
+            || custom_before.skills != self.custom_occupation.skills
+            || custom_before.skill_labels != self.custom_occupation.skill_labels
+            || custom_before.skill_slot_labels != self.custom_occupation.skill_slot_labels;
+
+        for (key, value) in occupation_choices_before {
+            if !self.occupation_choices.contains_key(&key) {
+                report
+                    .removed_occupation_choices
+                    .push(format!("{}[{}] = {}", key.id, key.index, value));
+            }
         }
         report
     }

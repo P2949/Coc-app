@@ -648,7 +648,7 @@ pub(crate) struct Occupation {
     pub(crate) slots: Vec<Slot>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct DiceResult {
     pub(crate) rolls: Vec<u32>,
     pub(crate) plus_six: bool,
@@ -681,7 +681,7 @@ fn default_custom_occupation_required_skill_count() -> usize {
     CUSTOM_OCCUPATION_SKILL_COUNT
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CustomOccupation {
     pub(crate) name: String,
     pub(crate) credit_min: i32,
@@ -689,8 +689,13 @@ pub(crate) struct CustomOccupation {
     pub(crate) formula_key: FormulaKey,
     #[serde(default = "default_custom_occupation_required_skill_count")]
     pub(crate) required_skill_count: usize,
+    // Legacy v1 custom skill labels keyed by canonical skill name.
+    // New saves prefer `skill_slot_labels` so duplicate specialties can be
+    // represented as independent custom occupation skill instances.
     #[serde(default)]
     pub(crate) skill_labels: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(crate) skill_slot_labels: BTreeMap<usize, String>,
     pub(crate) skills: Vec<String>,
 }
 
@@ -703,12 +708,13 @@ impl Default for CustomOccupation {
             formula_key: FormulaKey::Edu4,
             required_skill_count: CUSTOM_OCCUPATION_SKILL_COUNT,
             skill_labels: BTreeMap::new(),
+            skill_slot_labels: BTreeMap::new(),
             skills: vec![String::new(); CUSTOM_OCCUPATION_SKILL_COUNT],
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct EduCheckRoll {
     pub(crate) d100: i32,
     pub(crate) improved: bool,
@@ -719,6 +725,7 @@ pub(crate) struct EduCheckRoll {
 #[derive(Clone, Debug)]
 pub(crate) struct SkillRow {
     pub(crate) id: Skill,
+    pub(crate) custom_index: Option<usize>,
     pub(crate) name: String,
     pub(crate) base: i32,
     pub(crate) occ_add: i32,
@@ -781,7 +788,7 @@ impl ChoiceKey {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct LuckState {
     pub(crate) value: Option<i32>,
     pub(crate) rolls: Vec<DiceResult>,
@@ -791,6 +798,8 @@ pub(crate) struct LuckState {
 pub(crate) struct AllocationState {
     pub(crate) occupation_points: HashMap<Skill, i32>,
     pub(crate) personal_points: HashMap<Skill, i32>,
+    pub(crate) custom_occupation_points: HashMap<usize, i32>,
+    pub(crate) custom_personal_points: HashMap<usize, i32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -798,6 +807,16 @@ pub(crate) struct SanitizeReport {
     pub(crate) removed_allocations: Vec<String>,
     pub(crate) clamped_allocations: Vec<String>,
     pub(crate) removed_unknown_skills: Vec<String>,
+    pub(crate) clamped_characteristics: Vec<String>,
+    pub(crate) removed_characteristic_rolls: Vec<String>,
+    pub(crate) reset_luck: bool,
+    pub(crate) normalized_edu_checks: bool,
+    pub(crate) normalized_age_deductions: bool,
+    pub(crate) removed_backstory_categories: Vec<String>,
+    pub(crate) normalized_formula: bool,
+    pub(crate) removed_occupation_choices: Vec<String>,
+    pub(crate) normalized_custom_occupation: bool,
+    pub(crate) normalized_rng_state: bool,
 }
 
 impl SanitizeReport {
@@ -805,6 +824,16 @@ impl SanitizeReport {
         self.removed_allocations.is_empty()
             && self.clamped_allocations.is_empty()
             && self.removed_unknown_skills.is_empty()
+            && self.clamped_characteristics.is_empty()
+            && self.removed_characteristic_rolls.is_empty()
+            && !self.reset_luck
+            && !self.normalized_edu_checks
+            && !self.normalized_age_deductions
+            && self.removed_backstory_categories.is_empty()
+            && !self.normalized_formula
+            && self.removed_occupation_choices.is_empty()
+            && !self.normalized_custom_occupation
+            && !self.normalized_rng_state
     }
 
     pub(crate) fn summary(&self) -> String {
@@ -842,6 +871,68 @@ impl SanitizeReport {
                 }
             ));
         }
+        if !self.clamped_characteristics.is_empty() {
+            parts.push(format!(
+                "clamped {} characteristic{}",
+                self.clamped_characteristics.len(),
+                if self.clamped_characteristics.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if !self.removed_characteristic_rolls.is_empty() {
+            parts.push(format!(
+                "removed {} stale characteristic roll{}",
+                self.removed_characteristic_rolls.len(),
+                if self.removed_characteristic_rolls.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if self.reset_luck {
+            parts.push("reset invalid Luck roll evidence".to_owned());
+        }
+        if self.normalized_edu_checks {
+            parts.push("normalized EDU age checks".to_owned());
+        }
+        if self.normalized_age_deductions {
+            parts.push("normalized age deductions".to_owned());
+        }
+        if !self.removed_backstory_categories.is_empty() {
+            parts.push(format!(
+                "removed {} backstory entr{}",
+                self.removed_backstory_categories.len(),
+                if self.removed_backstory_categories.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                }
+            ));
+        }
+        if self.normalized_formula {
+            parts.push("normalized occupation formula".to_owned());
+        }
+        if !self.removed_occupation_choices.is_empty() {
+            parts.push(format!(
+                "removed {} occupation choice{}",
+                self.removed_occupation_choices.len(),
+                if self.removed_occupation_choices.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if self.normalized_custom_occupation {
+            parts.push("normalized custom occupation".to_owned());
+        }
+        if self.normalized_rng_state {
+            parts.push("normalized RNG state".to_owned());
+        }
         if parts.is_empty() {
             "no corrections".to_owned()
         } else {
@@ -854,6 +945,10 @@ impl SanitizeReport {
 struct SerializableAllocationState {
     occupation_points: BTreeMap<String, i32>,
     personal_points: BTreeMap<String, i32>,
+    #[serde(default)]
+    custom_occupation_points: BTreeMap<usize, i32>,
+    #[serde(default)]
+    custom_personal_points: BTreeMap<usize, i32>,
 }
 
 impl Serialize for AllocationState {
@@ -871,6 +966,16 @@ impl Serialize for AllocationState {
                 .personal_points
                 .iter()
                 .map(|(skill, value)| (skill.name().to_owned(), *value))
+                .collect(),
+            custom_occupation_points: self
+                .custom_occupation_points
+                .iter()
+                .map(|(index, value)| (*index, *value))
+                .collect(),
+            custom_personal_points: self
+                .custom_personal_points
+                .iter()
+                .map(|(index, value)| (*index, *value))
                 .collect(),
         };
         raw.serialize(serializer)
@@ -894,6 +999,8 @@ impl<'de> Deserialize<'de> for AllocationState {
                 .into_iter()
                 .filter_map(|(skill, value)| Skill::from_name(&skill).map(|skill| (skill, value)))
                 .collect(),
+            custom_occupation_points: raw.custom_occupation_points.into_iter().collect(),
+            custom_personal_points: raw.custom_personal_points.into_iter().collect(),
         })
     }
 }
@@ -914,6 +1021,8 @@ pub(crate) struct InvestigatorSaveFile {
     pub(crate) char_rolls: BTreeMap<String, DiceResult>,
     #[serde(default)]
     pub(crate) rng_seed: u64,
+    #[serde(default)]
+    pub(crate) rng_roll_sides: Vec<u32>,
     pub(crate) luck_state: LuckState,
     pub(crate) age_deductions: CharacteristicValues,
     pub(crate) edu_bonus: i32,
@@ -951,5 +1060,6 @@ pub(crate) struct CoC7eApp {
     pub(super) last_age_bracket_index: usize,
     pub(super) frame_max_reachable_step: usize,
     pub(super) rng_seed: u64,
+    pub(super) rng_roll_sides: Vec<u32>,
     pub(super) rng: AppRng,
 }
