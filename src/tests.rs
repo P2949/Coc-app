@@ -1505,7 +1505,7 @@ fn sanitize_custom_occupation_cleans_raw_imported_state() {
             "Library Use".to_owned(),
             String::new(),
             String::new(),
-            "Library Use".to_owned(),
+            String::new(),
             String::new(),
             "Spot Hidden".to_owned(),
             String::new(),
