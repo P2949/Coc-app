@@ -58,9 +58,9 @@ impl CoC7eApp {
             }
         }
         if let Some(label) = self.custom_occupation.skill_labels.get(skill.name()) {
-            let trimmed = label.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_owned();
+            let normalized = Self::normalized_custom_slot_label(label);
+            if !normalized.is_empty() {
+                return normalized;
             }
         }
         skill.name().to_owned()
@@ -186,28 +186,9 @@ impl CoC7eApp {
         }
     }
 
-    fn cleanup_stale_generated_duplicate_labels_for(&mut self, skill: Skill) {
-        let all_indices = self.slot_indices_for_skill(skill);
-        if all_indices.len() != 1 {
-            return;
-        }
-
-        let index = all_indices[0];
-        let Some(label) = self
-            .custom_occupation
-            .skill_slot_labels
-            .get(&index)
-            .map(|label| Self::normalized_custom_slot_label(label))
-        else {
-            return;
-        };
-
-        for ordinal in 0..CUSTOM_OCCUPATION_SKILL_COUNT {
-            if label == Self::generated_duplicate_label(skill, ordinal) {
-                self.custom_occupation.skill_slot_labels.remove(&index);
-                break;
-            }
-        }
+    fn cleanup_stale_generated_duplicate_labels_for(&mut self, _skill: Skill) {
+        // Generated-looking labels are indistinguishable from user-authored labels
+        // such as `Pilot 1`. Preserve them rather than guessing and risking data loss.
     }
 
     fn ensure_distinct_slot_labels_for_active_duplicates(&mut self, skill: Skill) {
@@ -271,29 +252,8 @@ impl CoC7eApp {
             }
         }
 
-        for (skill, indices) in &active_slots_by_skill {
-            if indices.len() < 2 {
-                self.cleanup_stale_generated_duplicate_labels_for(*skill);
-                continue;
-            }
-
-            let mut seen_labels = HashSet::new();
-            let has_distinct_slot_labels = indices.iter().all(|index| {
-                let label = self
-                    .custom_occupation
-                    .skill_slot_labels
-                    .get(index)
-                    .map(|label| Self::normalized_custom_slot_label(label))
-                    .unwrap_or_default();
-                !label.is_empty() && seen_labels.insert(label)
-            });
-
-            if !has_distinct_slot_labels {
-                for index in indices.iter().skip(1) {
-                    self.custom_occupation.skills[*index].clear();
-                    self.custom_occupation.skill_slot_labels.remove(index);
-                }
-            }
+        for skill in active_slots_by_skill.keys().copied().collect::<Vec<_>>() {
+            self.ensure_distinct_slot_labels_for_active_duplicates(skill);
         }
 
         let all_valid_skills: HashSet<Skill> = self
@@ -314,7 +274,12 @@ impl CoC7eApp {
             .custom_occupation
             .skill_labels
             .iter()
-            .map(|(skill, label)| (skill.trim().to_owned(), label.trim().to_owned()))
+            .map(|(skill, label)| {
+                (
+                    skill.trim().to_owned(),
+                    Self::normalized_custom_slot_label(label),
+                )
+            })
             .collect();
         self.custom_occupation.skill_labels.clear();
         for (skill, label) in normalized_labels {

@@ -1505,13 +1505,15 @@ fn sanitize_custom_occupation_cleans_raw_imported_state() {
             "Library Use".to_owned(),
             String::new(),
             String::new(),
-            String::new(),
+            "Library Use".to_owned(),
             String::new(),
             "Spot Hidden".to_owned(),
             String::new(),
             "Listen".to_owned(),
         ]
     );
+    assert!(app.custom_occupation.skill_slot_labels.contains_key(&0));
+    assert!(app.custom_occupation.skill_slot_labels.contains_key(&3));
 }
 
 #[test]
@@ -2555,12 +2557,14 @@ fn json_import_sanitizes_custom_occupation_raw_state_before_resaving() {
             String::new(),
             String::new(),
             "Spot Hidden".to_owned(),
-            String::new(),
+            "Library Use".to_owned(),
             "Listen".to_owned(),
             String::new(),
             "Stealth".to_owned(),
         ]
     );
+    assert!(loaded.custom_occupation.skill_slot_labels.contains_key(&0));
+    assert!(loaded.custom_occupation.skill_slot_labels.contains_key(&4));
 
     let exported = loaded.save_file();
     assert_eq!(exported.custom_occupation.credit_min, 0);
@@ -2578,6 +2582,7 @@ fn json_import_sanitizes_custom_occupation_raw_state_before_resaving() {
         vec![
             Skill::LibraryUse,
             Skill::SpotHidden,
+            Skill::LibraryUse,
             Skill::Listen,
             Skill::Stealth,
         ]
@@ -3034,22 +3039,27 @@ fn custom_slot_label_sanitizer_compares_truncated_labels() {
     app.sanitize_custom_occupation();
 
     assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
-    assert_eq!(app.custom_occupation.skills[1], "");
+    assert_eq!(app.custom_occupation.skills[1], "Language (Other)");
     assert_eq!(
         app.custom_occupation.skill_slot_labels.get(&0),
         Some(&shared_prefix)
     );
-    assert!(!app.custom_occupation.skill_slot_labels.contains_key(&1));
+    let second = app
+        .custom_occupation
+        .skill_slot_labels
+        .get(&1)
+        .expect("second duplicate should be relabeled instead of removed");
+    assert_ne!(second, &shared_prefix);
 }
 
 #[test]
-fn stale_generated_duplicate_label_is_removed_when_group_shrinks() {
+fn generated_looking_custom_label_is_preserved_when_group_shrinks() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
     app.set_custom_occupation_required_skill_count(2);
     assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
     assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
-    assert!(app.custom_occupation.skill_slot_labels.contains_key(&0));
+    assert!(app.set_custom_occupation_skill_label_for_slot(0, "Language (Other) 1".to_owned()));
     assert!(app.custom_occupation.skill_slot_labels.contains_key(&1));
 
     assert!(app.set_custom_occupation_skill(1, "Pilot".to_owned()));
@@ -3057,7 +3067,10 @@ fn stale_generated_duplicate_label_is_removed_when_group_shrinks() {
 
     assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
     assert_eq!(app.custom_occupation.skills[1], "Pilot");
-    assert_eq!(app.custom_occupation.skill_slot_labels.get(&0), None);
+    assert_eq!(
+        app.custom_occupation.skill_slot_labels.get(&0),
+        Some(&"Language (Other) 1".to_owned())
+    );
 }
 
 #[test]
@@ -3366,6 +3379,52 @@ fn rng_roll_history_restores_next_roll_position() {
         .expect("save should import cleanly");
     assert_eq!(loaded.rng_roll_sides, vec![6, 100, 10]);
     assert_eq!(loaded.roll_die(6), source.roll_die(6));
+}
+
+#[test]
+fn live_rng_roll_history_is_bounded() {
+    let mut app = test_app();
+    for _ in 0..(MAX_RNG_ROLL_HISTORY + 8) {
+        let _ = app.roll_die(6);
+    }
+
+    assert_eq!(app.rng_roll_sides.len(), MAX_RNG_ROLL_HISTORY);
+    let json = app.export_json_save().expect("save should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    assert_eq!(
+        value["rng_roll_sides"]
+            .as_array()
+            .expect("rng_roll_sides should be an array")
+            .len(),
+        MAX_RNG_ROLL_HISTORY
+    );
+}
+
+#[test]
+fn legacy_custom_skill_labels_are_truncated_during_sanitization() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Pilot".to_owned()));
+    let label = "P".repeat(96);
+    app.custom_occupation
+        .skill_labels
+        .insert("Pilot".to_owned(), label);
+
+    app.sanitize_state();
+
+    let saved_label = app
+        .custom_occupation
+        .skill_labels
+        .get("Pilot")
+        .expect("legacy custom label should be retained after normalization");
+    assert_eq!(saved_label.chars().count(), 64);
+    assert_eq!(
+        app.custom_skill_display_name_for_slot(0, Skill::Pilot)
+            .chars()
+            .count(),
+        64
+    );
 }
 
 #[test]

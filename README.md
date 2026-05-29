@@ -69,7 +69,7 @@ Save files include a numeric schema version. Missing-version JSON is treated as 
 
 Custom occupations default to the standard eight occupation-skill slots, but the required count can be lowered for Keeper-approved custom or simplified occupations. Custom occupation skill slots may also have independent display labels such as `Language (Latin)`, `Language (Greek)`, `Pilot (Boat)`, or `Survival (Desert)` while keeping the underlying canonical rule skill for base values. Duplicate specialty slots are tracked as separate sheet rows and keep independent custom-slot allocation points. Temporarily lowering the custom occupation skill count preserves inactive valid slot names and clamped inactive slot allocations so they can be restored when the count is raised again.
 
-Dice rolls use the app's saved RNG seed and roll-side history as convenience roll evidence for character creation, not as cryptographic randomness. Stored characteristic, Luck, and EDU roll results remain the authoritative audit trail in the JSON save.
+Dice rolls use the app's saved RNG seed and bounded roll-side history as convenience roll evidence for character creation, not as cryptographic randomness. Stored characteristic, Luck, and EDU roll results remain the authoritative audit trail in the JSON save.
 
 ## Installer packaging
 

@@ -56,7 +56,10 @@ impl CoC7eApp {
 
     pub(crate) fn roll_die(&mut self, sides: u32) -> u32 {
         let sides = sides.max(1);
-        self.rng_roll_sides.push(sides);
+        if VALID_RNG_ROLL_SIDES.contains(&sides) && self.rng_roll_sides.len() < MAX_RNG_ROLL_HISTORY
+        {
+            self.rng_roll_sides.push(sides);
+        }
         self.rng.roll_inclusive(sides)
     }
 
