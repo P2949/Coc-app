@@ -45,6 +45,7 @@ impl CoC7eApp {
             let occ_budget = math.occupation_budget;
             let personal_budget = math.personal_budget;
             let used_occ = CoC7eApp::used_occupation_points_from(&math.skill_rows);
+            let occupation_capacity = CoC7eApp::occupation_budget_capacity_from(&math);
             let used_personal = CoC7eApp::used_personal_points_from(&math.skill_rows);
             let credit = math.credit_rating;
             let (credit_min, credit_max) = math.credit_range;
@@ -57,8 +58,13 @@ impl CoC7eApp {
             ui.horizontal_wrapped(|ui| {
                 pill(
                     ui,
-                    format!("Occupation {used_occ} / {occ_budget}"),
-                    if used_occ > occ_budget {
+                    if !no_occupation && occ_budget > occupation_capacity {
+                        format!("Occupation impossible: cap {occupation_capacity} / {occ_budget}")
+                    } else {
+                        format!("Occupation {used_occ} / {occ_budget}")
+                    },
+                    if used_occ > occ_budget || (!no_occupation && occ_budget > occupation_capacity)
+                    {
                         RED
                     } else if used_occ < occ_budget {
                         AMBER

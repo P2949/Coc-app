@@ -3841,3 +3841,126 @@ fn rng_seed_is_saved_and_restored() {
         .expect("save should import cleanly");
     assert_eq!(loaded.rng_seed, source.rng_seed);
 }
+
+#[test]
+fn legacy_custom_skill_labels_cannot_duplicate_visible_skill_rows_after_import() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Pilot".to_owned()));
+    app.custom_occupation
+        .skill_labels
+        .insert("Pilot".to_owned(), "Library Use".to_owned());
+
+    app.sanitize_state();
+
+    assert!(!app.custom_occupation.skill_labels.contains_key("Pilot"));
+    let row_names = app
+        .sheet_math()
+        .skill_rows
+        .into_iter()
+        .map(|row| row.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Library Use")
+            .count(),
+        1
+    );
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Pilot")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn summary_reports_impossible_custom_occupation_budget_when_caps_are_too_low() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 50),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Library Use".to_owned()));
+
+    let math = app.sheet_math();
+    let occupation_capacity = CoC7eApp::occupation_budget_capacity_from(&math);
+    assert!(occupation_capacity < math.occupation_budget);
+
+    let blockers = app.summary_blockers_for(&math);
+    assert!(
+        blockers
+            .iter()
+            .any(|blocker| blocker.starts_with("occupation points impossible:")),
+        "expected impossible occupation budget blocker, got {blockers:?}"
+    );
+}
+
+#[test]
+fn json_import_tolerates_malformed_custom_occupation_and_choice_field_types() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    value["occupation_id"] = serde_json::json!("Nurse");
+    value["custom_occupation"]["required_skill_count"] = serde_json::json!(-1);
+    value["custom_occupation"]["skills"] = serde_json::json!([123, "Library Use"]);
+    value["occupation_choices"] = serde_json::json!([
+        {
+            "id": "nurse-interpersonal",
+            "index": "0",
+            "value": "Persuade"
+        },
+        {
+            "id": 123,
+            "index": -1,
+            "value": false
+        },
+        false
+    ]);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("malformed custom occupation and choice field types should not be fatal");
+
+    assert_eq!(loaded.custom_occupation.required_skill_count, 1);
+    assert_eq!(loaded.custom_occupation.skills[0], "");
+    assert_eq!(loaded.custom_occupation.skills[1], "Library Use");
+    assert_eq!(
+        loaded
+            .occupation_choices
+            .get(&ChoiceKey::new("nurse-interpersonal", 0)),
+        Some(&"Persuade".to_owned())
+    );
+    for expected in [
+        "custom_occupation.required_skill_count: expected non-negative integer",
+        "custom_occupation.skills[0]: non-string skill",
+        "occupation_choices[1].id: expected string",
+        "occupation_choices[1].index: expected non-negative integer",
+        "occupation_choices[1].value: expected string",
+        "occupation_choices[2]: expected object",
+    ] {
+        assert!(
+            report
+                .removed_unknown_import_entries
+                .iter()
+                .any(|entry| entry.contains(expected)),
+            "expected {expected:?} report, got {report:?}"
+        );
+    }
+}

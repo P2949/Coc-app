@@ -691,6 +691,154 @@ fn default_custom_occupation_required_skill_count() -> usize {
     CUSTOM_OCCUPATION_SKILL_COUNT
 }
 
+fn default_custom_occupation_name() -> String {
+    "Custom Occupation".to_owned()
+}
+
+fn default_custom_occupation_credit_min() -> i32 {
+    9
+}
+
+fn default_custom_occupation_credit_max() -> i32 {
+    60
+}
+
+fn default_custom_occupation_formula_key() -> FormulaKey {
+    FormulaKey::Edu4
+}
+
+fn default_custom_occupation_skills() -> Vec<String> {
+    vec![String::new(); CUSTOM_OCCUPATION_SKILL_COUNT]
+}
+
+fn invalid_occupation_choice_index() -> usize {
+    usize::MAX
+}
+
+fn parse_i32_import_value(value: &serde_json::Value) -> Option<i32> {
+    value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .or_else(|| value.as_str()?.trim().parse::<i32>().ok())
+}
+
+fn parse_usize_import_value(value: &serde_json::Value) -> Option<usize> {
+    if let Some(value) = value.as_i64() {
+        return usize::try_from(value).ok();
+    }
+
+    let parsed = value.as_str()?.trim().parse::<i64>().ok()?;
+    usize::try_from(parsed).ok()
+}
+
+fn parse_custom_required_skill_count_value(value: &serde_json::Value) -> Option<usize> {
+    if let Some(value) = value.as_i64() {
+        return if value < 0 {
+            Some(0)
+        } else {
+            usize::try_from(value).ok()
+        };
+    }
+
+    let parsed = value.as_str()?.trim().parse::<i64>().ok()?;
+    if parsed < 0 {
+        Some(0)
+    } else {
+        usize::try_from(parsed).ok()
+    }
+}
+
+fn deserialize_string_or_empty<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(raw.as_str().unwrap_or_default().to_owned())
+}
+
+fn deserialize_custom_occupation_name<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(raw
+        .as_str()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(default_custom_occupation_name))
+}
+
+fn deserialize_custom_occupation_credit_min<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_i32_import_value(&raw).unwrap_or_else(default_custom_occupation_credit_min))
+}
+
+fn deserialize_custom_occupation_credit_max<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_i32_import_value(&raw).unwrap_or_else(default_custom_occupation_credit_max))
+}
+
+fn deserialize_custom_occupation_formula_key<'de, D>(
+    deserializer: D,
+) -> Result<FormulaKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(raw).unwrap_or_else(|_| default_custom_occupation_formula_key()))
+}
+
+fn deserialize_custom_occupation_required_skill_count<'de, D>(
+    deserializer: D,
+) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_custom_required_skill_count_value(&raw)
+        .unwrap_or_else(default_custom_occupation_required_skill_count))
+}
+
+fn deserialize_custom_occupation_skills<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(skills) = raw.as_array() else {
+        return Ok(default_custom_occupation_skills());
+    };
+
+    Ok(skills
+        .iter()
+        .map(|skill| skill.as_str().unwrap_or_default().to_owned())
+        .collect())
+}
+
+fn deserialize_occupation_choice_index<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_usize_import_value(&raw).unwrap_or_else(invalid_occupation_choice_index))
+}
+
+fn deserialize_custom_occupation<'de, D>(deserializer: D) -> Result<CustomOccupation, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(_) = raw.as_object() else {
+        return Ok(CustomOccupation::default());
+    };
+
+    Ok(serde_json::from_value(raw).unwrap_or_default())
+}
+
 fn parse_usize_label_map(
     raw: &serde_json::Map<String, serde_json::Value>,
 ) -> BTreeMap<usize, String> {
@@ -743,11 +891,30 @@ where
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CustomOccupation {
+    #[serde(
+        default = "default_custom_occupation_name",
+        deserialize_with = "deserialize_custom_occupation_name"
+    )]
     pub(crate) name: String,
+    #[serde(
+        default = "default_custom_occupation_credit_min",
+        deserialize_with = "deserialize_custom_occupation_credit_min"
+    )]
     pub(crate) credit_min: i32,
+    #[serde(
+        default = "default_custom_occupation_credit_max",
+        deserialize_with = "deserialize_custom_occupation_credit_max"
+    )]
     pub(crate) credit_max: i32,
+    #[serde(
+        default = "default_custom_occupation_formula_key",
+        deserialize_with = "deserialize_custom_occupation_formula_key"
+    )]
     pub(crate) formula_key: FormulaKey,
-    #[serde(default = "default_custom_occupation_required_skill_count")]
+    #[serde(
+        default = "default_custom_occupation_required_skill_count",
+        deserialize_with = "deserialize_custom_occupation_required_skill_count"
+    )]
     pub(crate) required_skill_count: usize,
     // Legacy v1 custom skill labels keyed by canonical skill name.
     // New saves prefer `skill_slot_labels` so duplicate specialties can be
@@ -756,6 +923,10 @@ pub(crate) struct CustomOccupation {
     pub(crate) skill_labels: BTreeMap<String, String>,
     #[serde(default, deserialize_with = "deserialize_skill_slot_labels")]
     pub(crate) skill_slot_labels: BTreeMap<usize, String>,
+    #[serde(
+        default = "default_custom_occupation_skills",
+        deserialize_with = "deserialize_custom_occupation_skills"
+    )]
     pub(crate) skills: Vec<String>,
 }
 
@@ -1129,9 +1300,33 @@ impl<'de> Deserialize<'de> for AllocationState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct SavedOccupationChoice {
+    #[serde(default, deserialize_with = "deserialize_string_or_empty")]
     pub(crate) id: String,
+    #[serde(
+        default = "invalid_occupation_choice_index",
+        deserialize_with = "deserialize_occupation_choice_index"
+    )]
     pub(crate) index: usize,
+    #[serde(default, deserialize_with = "deserialize_string_or_empty")]
     pub(crate) value: String,
+}
+
+fn deserialize_occupation_choices<'de, D>(
+    deserializer: D,
+) -> Result<Vec<SavedOccupationChoice>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(choices) = raw.as_array() else {
+        return Ok(Vec::new());
+    };
+
+    Ok(choices
+        .iter()
+        .filter(|choice| choice.is_object())
+        .filter_map(|choice| serde_json::from_value(choice.clone()).ok())
+        .collect())
 }
 
 fn deserialize_rng_roll_sides<'de, D>(deserializer: D) -> Result<Vec<u32>, D::Error>
@@ -1170,7 +1365,9 @@ pub(crate) struct InvestigatorSaveFile {
     pub(crate) edu_check_rolls: Vec<EduCheckRoll>,
     pub(crate) occupation_id: String,
     pub(crate) formula_key: FormulaKey,
+    #[serde(default, deserialize_with = "deserialize_occupation_choices")]
     pub(crate) occupation_choices: Vec<SavedOccupationChoice>,
+    #[serde(default, deserialize_with = "deserialize_custom_occupation")]
     pub(crate) custom_occupation: CustomOccupation,
     pub(crate) allocations: AllocationState,
     pub(crate) backstory: BTreeMap<String, String>,

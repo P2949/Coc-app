@@ -185,25 +185,54 @@ impl CoC7eApp {
     }
 
     fn remove_visible_custom_slot_label_conflicts(&mut self) {
+        enum ConflictingLabel {
+            Slot(usize),
+            Legacy(Skill),
+        }
+
         loop {
-            let conflicting_indices: Vec<usize> = self
+            let conflicting_labels: Vec<ConflictingLabel> = self
                 .custom_occupation_skill_slots()
                 .into_iter()
-                .filter_map(|(index, _)| {
-                    self.custom_occupation
+                .filter_map(|(index, skill)| {
+                    if self
+                        .custom_occupation
                         .skill_slot_labels
                         .get(&index)
+                        .is_some_and(|label| self.visible_custom_slot_label_conflict(index, label))
+                    {
+                        return Some(ConflictingLabel::Slot(index));
+                    }
+
+                    if self
+                        .custom_occupation
+                        .skill_slot_labels
+                        .contains_key(&index)
+                    {
+                        return None;
+                    }
+
+                    self.custom_occupation
+                        .skill_labels
+                        .get(skill.name())
                         .filter(|label| self.visible_custom_slot_label_conflict(index, label))
-                        .map(|_| index)
+                        .map(|_| ConflictingLabel::Legacy(skill))
                 })
                 .collect();
 
-            if conflicting_indices.is_empty() {
+            if conflicting_labels.is_empty() {
                 break;
             }
 
-            for index in conflicting_indices {
-                self.custom_occupation.skill_slot_labels.remove(&index);
+            for label in conflicting_labels {
+                match label {
+                    ConflictingLabel::Slot(index) => {
+                        self.custom_occupation.skill_slot_labels.remove(&index);
+                    }
+                    ConflictingLabel::Legacy(skill) => {
+                        self.custom_occupation.skill_labels.remove(skill.name());
+                    }
+                }
             }
         }
     }

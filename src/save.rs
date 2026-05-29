@@ -32,6 +32,28 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
     (replay_sides, normalized)
 }
 
+fn import_value_is_i32(value: &serde_json::Value) -> bool {
+    value
+        .as_i64()
+        .is_some_and(|value| i32::try_from(value).is_ok())
+        || value
+            .as_str()
+            .is_some_and(|value| value.trim().parse::<i32>().is_ok())
+}
+
+fn import_value_is_non_negative_usize(value: &serde_json::Value) -> bool {
+    if let Some(value) = value.as_i64() {
+        return value >= 0 && usize::try_from(value).is_ok();
+    }
+
+    value.as_str().is_some_and(|value| {
+        value
+            .trim()
+            .parse::<i64>()
+            .is_ok_and(|value| value >= 0 && usize::try_from(value).is_ok())
+    })
+}
+
 fn allocation_value_is_i32(value: &serde_json::Value) -> bool {
     value
         .as_i64()
@@ -83,31 +105,107 @@ fn invalid_import_entries(value: &serde_json::Value) -> Vec<String> {
         }
     }
 
-    if let Some(custom_occupation) = value.get("custom_occupation") {
-        if let Some(raw_labels) = custom_occupation.get("skill_labels") {
-            if let Some(labels) = raw_labels.as_object() {
-                for (skill, label) in labels {
-                    if !label.is_string() {
-                        unknown.push(format!("skill_labels[{skill}]: non-string label"));
-                    }
+    if let Some(raw_custom_occupation) = value.get("custom_occupation") {
+        if let Some(custom_occupation) = raw_custom_occupation.as_object() {
+            for field in ["credit_min", "credit_max"] {
+                if let Some(raw) = custom_occupation.get(field)
+                    && !import_value_is_i32(raw)
+                {
+                    unknown.push(format!("custom_occupation.{field}: expected integer"));
                 }
-            } else if !raw_labels.is_null() {
-                unknown.push("skill_labels: expected object".to_owned());
             }
-        }
+            if let Some(raw) = custom_occupation.get("name")
+                && !raw.is_string()
+            {
+                unknown.push("custom_occupation.name: expected string".to_owned());
+            }
+            if let Some(raw) = custom_occupation.get("formula_key")
+                && serde_json::from_value::<FormulaKey>(raw.clone()).is_err()
+            {
+                unknown.push("custom_occupation.formula_key: unknown formula".to_owned());
+            }
+            if let Some(raw) = custom_occupation.get("required_skill_count")
+                && !import_value_is_non_negative_usize(raw)
+            {
+                unknown.push(
+                    "custom_occupation.required_skill_count: expected non-negative integer"
+                        .to_owned(),
+                );
+            }
+            if let Some(raw_skills) = custom_occupation.get("skills") {
+                if let Some(skills) = raw_skills.as_array() {
+                    for (index, skill) in skills.iter().enumerate() {
+                        if !skill.is_string() {
+                            unknown.push(format!(
+                                "custom_occupation.skills[{index}]: non-string skill"
+                            ));
+                        }
+                    }
+                } else if !raw_skills.is_null() {
+                    unknown.push("custom_occupation.skills: expected array".to_owned());
+                }
+            }
 
-        if let Some(raw_labels) = custom_occupation.get("skill_slot_labels") {
-            if let Some(labels) = raw_labels.as_object() {
-                for (slot, label) in labels {
-                    if slot.parse::<usize>().is_err() {
-                        unknown.push(format!("skill_slot_labels: {slot}"));
-                    } else if !label.is_string() {
-                        unknown.push(format!("skill_slot_labels[{slot}]: non-string label"));
+            if let Some(raw_labels) = custom_occupation.get("skill_labels") {
+                if let Some(labels) = raw_labels.as_object() {
+                    for (skill, label) in labels {
+                        if !label.is_string() {
+                            unknown.push(format!("skill_labels[{skill}]: non-string label"));
+                        }
                     }
+                } else if !raw_labels.is_null() {
+                    unknown.push("skill_labels: expected object".to_owned());
                 }
-            } else if !raw_labels.is_null() {
-                unknown.push("skill_slot_labels: expected object".to_owned());
             }
+
+            if let Some(raw_labels) = custom_occupation.get("skill_slot_labels") {
+                if let Some(labels) = raw_labels.as_object() {
+                    for (slot, label) in labels {
+                        if slot.parse::<usize>().is_err() {
+                            unknown.push(format!("skill_slot_labels: {slot}"));
+                        } else if !label.is_string() {
+                            unknown.push(format!("skill_slot_labels[{slot}]: non-string label"));
+                        }
+                    }
+                } else if !raw_labels.is_null() {
+                    unknown.push("skill_slot_labels: expected object".to_owned());
+                }
+            }
+        } else if !raw_custom_occupation.is_null() {
+            unknown.push("custom_occupation: expected object".to_owned());
+        }
+    }
+
+    if let Some(raw_choices) = value.get("occupation_choices") {
+        if let Some(choices) = raw_choices.as_array() {
+            for (index, choice) in choices.iter().enumerate() {
+                let Some(choice) = choice.as_object() else {
+                    unknown.push(format!("occupation_choices[{index}]: expected object"));
+                    continue;
+                };
+
+                if let Some(raw) = choice.get("id")
+                    && !raw.is_string()
+                {
+                    unknown.push(format!("occupation_choices[{index}].id: expected string"));
+                }
+                if let Some(raw) = choice.get("index")
+                    && !import_value_is_non_negative_usize(raw)
+                {
+                    unknown.push(format!(
+                        "occupation_choices[{index}].index: expected non-negative integer"
+                    ));
+                }
+                if let Some(raw) = choice.get("value")
+                    && !raw.is_string()
+                {
+                    unknown.push(format!(
+                        "occupation_choices[{index}].value: expected string"
+                    ));
+                }
+            }
+        } else if !raw_choices.is_null() {
+            unknown.push("occupation_choices: expected array".to_owned());
         }
     }
 

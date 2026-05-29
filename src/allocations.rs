@@ -369,6 +369,18 @@ impl CoC7eApp {
         skill_rows.iter().map(|row| row.occ_add).sum()
     }
 
+    pub(crate) fn occupation_budget_capacity_from(math: &SheetMath) -> i32 {
+        if math.selected_occupation.is_none() {
+            return 0;
+        }
+
+        math.skill_rows
+            .iter()
+            .filter(|row| skill_accepts_occupation_points(row.id, &math.occupation_skill_set))
+            .map(|row| (MAX_CREATION_VALUE - row.base).max(0))
+            .sum()
+    }
+
     #[cfg(test)]
     pub(crate) fn used_occupation_points(&self) -> i32 {
         Self::used_occupation_points_from(&self.sheet_math().skill_rows)
