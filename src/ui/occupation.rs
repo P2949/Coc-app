@@ -294,6 +294,13 @@ impl CoC7eApp {
                 .color(MUTED)
                 .strong(),
             );
+            ui.label(
+                RichText::new(
+                    "Duplicate custom slots are allowed for Keeper-defined variants; use labels to distinguish them.",
+                )
+                .small()
+                .color(FAINT),
+            );
             if self.custom_occupation.credit_min > self.custom_occupation.credit_max {
                 ui.label(RichText::new("Credit min is greater than credit max; the generated range will be normalized until corrected.").small().color(AMBER));
             }
@@ -356,7 +363,7 @@ impl CoC7eApp {
                                 if rejected_label {
                                     ui.label(
                                         RichText::new(
-                                            "Duplicate custom specialties need distinct labels.",
+                                            "Duplicate custom slots need distinct labels.",
                                         )
                                         .small()
                                         .color(AMBER),

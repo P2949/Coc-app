@@ -20,7 +20,7 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
         .into_iter()
         .take(MAX_RNG_ROLL_HISTORY)
         .filter(|sides| {
-            if VALID_RNG_ROLL_SIDES.contains(sides) {
+            if *sides > 0 {
                 true
             } else {
                 normalized = true;
@@ -65,15 +65,20 @@ fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
         }
     }
 
-    if let Some(labels) = value
+    if let Some(raw_labels) = value
         .get("custom_occupation")
         .and_then(|custom_occupation| custom_occupation.get("skill_slot_labels"))
-        .and_then(serde_json::Value::as_object)
     {
-        for slot in labels.keys() {
-            if slot.parse::<usize>().is_err() {
-                unknown.push(format!("skill_slot_labels: {slot}"));
+        if let Some(labels) = raw_labels.as_object() {
+            for (slot, label) in labels {
+                if slot.parse::<usize>().is_err() {
+                    unknown.push(format!("skill_slot_labels: {slot}"));
+                } else if !label.is_string() {
+                    unknown.push(format!("skill_slot_labels[{slot}]: non-string label"));
+                }
             }
+        } else if !raw_labels.is_null() {
+            unknown.push("skill_slot_labels: expected object".to_owned());
         }
     }
 

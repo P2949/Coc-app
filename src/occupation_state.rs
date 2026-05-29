@@ -186,16 +186,10 @@ impl CoC7eApp {
         }
     }
 
-    fn cleanup_stale_generated_duplicate_labels_for(&mut self, _skill: Skill) {
-        // Generated-looking labels are indistinguishable from user-authored labels
-        // such as `Pilot 1`. Preserve them rather than guessing and risking data loss.
-    }
-
     fn ensure_distinct_slot_labels_for_active_duplicates(&mut self, skill: Skill) {
         let duplicate_indices = self.active_slot_indices_for_skill(skill);
 
         if duplicate_indices.len() < 2 {
-            self.cleanup_stale_generated_duplicate_labels_for(skill);
             return;
         }
 
@@ -512,11 +506,6 @@ impl CoC7eApp {
             self.allocations.custom_personal_points.remove(&index);
         }
         self.custom_occupation.skills[index] = normalized;
-        if let Some(old_skill) = old_skill
-            && old_skill != new_skill
-        {
-            self.cleanup_stale_generated_duplicate_labels_for(old_skill);
-        }
         self.ensure_distinct_slot_labels_for_active_duplicates(new_skill);
         self.prune_occupation_allocations();
         true

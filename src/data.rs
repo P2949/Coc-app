@@ -15,7 +15,6 @@ pub(crate) const CUSTOM_OCCUPATION_MIN_SKILL_COUNT: usize = 1;
 pub(crate) const CUSTOM_OCCUPATION_SKILL_COUNT: usize = 8;
 pub(crate) const DEFAULT_RNG_SEED: u64 = 0xC0C7_E7E5_1234_5678;
 pub(crate) const MAX_RNG_ROLL_HISTORY: usize = 4096;
-pub(crate) const VALID_RNG_ROLL_SIDES: &[u32] = &[6, 10, 100];
 // Optional helper budget, not an official CoC 7e point-buy rule.
 // 460 is the total used by this app's balanced adjustable preset.
 pub(crate) const POINT_BUY_BUDGET: i32 = 460;

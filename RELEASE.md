@@ -31,7 +31,7 @@ Check at least:
 - pasted JSON loads into a fresh app state;
 - JSON can be saved to and loaded from a file path;
 - import correction messages appear when invalid allocations, custom skill labels, Luck evidence, or legacy save fields are sanitized;
-- loaded investigators preserve characteristics, occupation choices, custom skill labels, duplicate custom specialty slots, active and inactive custom-slot allocations, skills, Luck, RNG seed/roll history, age modifiers, and backstory;
+- loaded investigators preserve characteristics, occupation choices, custom skill labels, duplicate custom slots, active and inactive custom-slot allocations, skills, Luck, RNG seed/roll history, age modifiers, and backstory;
 - summary text copies to the clipboard.
 
 ## Creating a release candidate
