@@ -2713,7 +2713,7 @@ fn json_import_reports_corrected_allocations_and_unknown_allocation_keys() {
     );
     assert!(
         report
-            .removed_unknown_skills
+            .removed_unknown_import_entries
             .iter()
             .any(|entry| entry.contains("Bogus Skill")),
         "expected unknown Bogus Skill allocation report, got {report:?}"
@@ -3286,21 +3286,21 @@ fn json_import_reports_and_ignores_malformed_custom_allocation_keys() {
     assert!(loaded.allocations.custom_personal_points.is_empty());
     assert!(
         report
-            .removed_unknown_skills
+            .removed_unknown_import_entries
             .iter()
             .any(|entry| entry.contains("custom_occupation_points: -1")),
         "expected malformed -1 key report, got {report:?}"
     );
     assert!(
         report
-            .removed_unknown_skills
+            .removed_unknown_import_entries
             .iter()
             .any(|entry| entry.contains("custom_occupation_points: slot4")),
         "expected malformed slot4 key report, got {report:?}"
     );
     assert!(
         report
-            .removed_unknown_skills
+            .removed_unknown_import_entries
             .iter()
             .any(|entry| entry.contains("custom_personal_points: bad")),
         "expected malformed bad key report, got {report:?}"
@@ -3326,14 +3326,14 @@ fn json_import_reports_and_ignores_malformed_custom_slot_label_keys() {
 
     assert!(
         report
-            .removed_unknown_skills
+            .removed_unknown_import_entries
             .iter()
             .any(|entry| entry.contains("skill_slot_labels: bad")),
         "expected malformed bad label key report, got {report:?}"
     );
     assert!(
         report
-            .removed_unknown_skills
+            .removed_unknown_import_entries
             .iter()
             .any(|entry| entry.contains("skill_slot_labels: -1")),
         "expected malformed -1 label key report, got {report:?}"
@@ -3370,12 +3370,68 @@ fn json_import_reports_and_ignores_malformed_custom_slot_label_values() {
 
         assert!(
             report
-                .removed_unknown_skills
+                .removed_unknown_import_entries
                 .iter()
                 .any(|entry| entry.contains(expected)),
             "expected {expected:?} report, got {report:?}"
         );
     }
+}
+
+#[test]
+fn json_import_reports_and_ignores_malformed_legacy_custom_skill_labels() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+
+    for (labels, expected) in [
+        (
+            serde_json::json!({
+                "Pilot": 123,
+                "Library Use": "Library (Archive)"
+            }),
+            "skill_labels[Pilot]: non-string label",
+        ),
+        (
+            serde_json::json!(["not", "an", "object"]),
+            "skill_labels: expected object",
+        ),
+    ] {
+        let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+        value["custom_occupation"]["skill_labels"] = labels;
+
+        let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+        let mut loaded = test_app();
+        let report = loaded
+            .import_json_save(&edited_json)
+            .expect("malformed legacy custom skill labels should be ignored, not fatal");
+
+        assert!(
+            report
+                .removed_unknown_import_entries
+                .iter()
+                .any(|entry| entry.contains(expected)),
+            "expected {expected:?} report, got {report:?}"
+        );
+    }
+}
+
+#[test]
+fn custom_slot_labels_cannot_duplicate_visible_skill_rows() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Pilot".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+
+    assert!(
+        !app.set_custom_occupation_skill_label_for_slot(0, "Library Use".to_owned()),
+        "custom labels should not duplicate standard visible rows"
+    );
+    assert!(
+        !app.set_custom_occupation_skill_label_for_slot(0, "Language (Other)".to_owned()),
+        "custom labels should not duplicate other custom rows"
+    );
+    assert!(app.set_custom_occupation_skill_label_for_slot(0, "Pilot (Boat)".to_owned()));
 }
 
 #[test]

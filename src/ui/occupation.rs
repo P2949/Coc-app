@@ -11,7 +11,7 @@ impl CoC7eApp {
         heading(
             ui,
             "III. Occupation",
-            "Choose an occupation, resolve choice slots, or define a Keeper-approved custom occupation with a configurable number of unique occupation skills.",
+            "Choose an occupation, resolve choice slots, or define a Keeper-approved custom occupation with configurable skill slots.",
         );
 
         if self.occupation_id == CUSTOM_OCCUPATION_ID {
@@ -363,7 +363,7 @@ impl CoC7eApp {
                                 if rejected_label {
                                     ui.label(
                                         RichText::new(
-                                            "Duplicate custom slots need distinct labels.",
+                                            "Custom skill labels must be distinct and must not duplicate visible skill rows.",
                                         )
                                         .small()
                                         .color(AMBER),

@@ -705,6 +705,29 @@ fn parse_usize_label_map(
         .collect()
 }
 
+fn parse_string_label_map(
+    raw: &serde_json::Map<String, serde_json::Value>,
+) -> BTreeMap<String, String> {
+    raw.iter()
+        .filter_map(|(skill, label)| {
+            label
+                .as_str()
+                .map(|label| (skill.clone(), label.to_owned()))
+        })
+        .collect()
+}
+
+fn deserialize_skill_labels<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(parse_string_label_map(object))
+}
+
 fn deserialize_skill_slot_labels<'de, D>(
     deserializer: D,
 ) -> Result<BTreeMap<usize, String>, D::Error>
@@ -729,7 +752,7 @@ pub(crate) struct CustomOccupation {
     // Legacy v1 custom skill labels keyed by canonical skill name.
     // New saves prefer `skill_slot_labels` so duplicate specialties can be
     // represented as independent custom occupation skill instances.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_skill_labels")]
     pub(crate) skill_labels: BTreeMap<String, String>,
     #[serde(default, deserialize_with = "deserialize_skill_slot_labels")]
     pub(crate) skill_slot_labels: BTreeMap<usize, String>,
@@ -843,7 +866,7 @@ pub(crate) struct AllocationState {
 pub(crate) struct SanitizeReport {
     pub(crate) removed_allocations: Vec<String>,
     pub(crate) clamped_allocations: Vec<String>,
-    pub(crate) removed_unknown_skills: Vec<String>,
+    pub(crate) removed_unknown_import_entries: Vec<String>,
     pub(crate) clamped_characteristics: Vec<String>,
     pub(crate) removed_characteristic_rolls: Vec<String>,
     pub(crate) reset_luck: bool,
@@ -862,7 +885,7 @@ impl SanitizeReport {
     pub(crate) fn is_clean(&self) -> bool {
         self.removed_allocations.is_empty()
             && self.clamped_allocations.is_empty()
-            && self.removed_unknown_skills.is_empty()
+            && self.removed_unknown_import_entries.is_empty()
             && self.clamped_characteristics.is_empty()
             && self.removed_characteristic_rolls.is_empty()
             && !self.reset_luck
@@ -901,15 +924,22 @@ impl SanitizeReport {
                 }
             ));
         }
-        if !self.removed_unknown_skills.is_empty() {
+        if !self.removed_unknown_import_entries.is_empty() {
+            let mut details = self
+                .removed_unknown_import_entries
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>();
+            if self.removed_unknown_import_entries.len() > details.len() {
+                details.push(format!(
+                    "{} more",
+                    self.removed_unknown_import_entries.len() - details.len()
+                ));
+            }
             parts.push(format!(
-                "removed {} unknown/custom skill label{}",
-                self.removed_unknown_skills.len(),
-                if self.removed_unknown_skills.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
+                "removed invalid import entries: {}",
+                details.join("; ")
             ));
         }
         if !self.clamped_characteristics.is_empty() {

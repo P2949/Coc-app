@@ -1,6 +1,6 @@
 use super::data::*;
 use super::occupations::*;
-use super::ruleset::CHARACTERISTICS;
+use super::ruleset::{CHARACTERISTICS, SKILL_SPECS};
 use std::collections::{HashMap, HashSet};
 
 impl CoC7eApp {
@@ -129,6 +129,27 @@ impl CoC7eApp {
         self.duplicate_label_conflict_for_indices(index, label, &self.slot_indices_for_skill(skill))
     }
 
+    fn visible_custom_slot_label_conflict(&self, index: usize, label: &str) -> bool {
+        let label = Self::normalized_custom_slot_label(label);
+        if label.is_empty() {
+            return false;
+        }
+
+        let custom_slots = self.custom_occupation_skill_slots();
+        let custom_bases: HashSet<Skill> = custom_slots.iter().map(|(_, skill)| *skill).collect();
+        for (other_index, other_skill) in custom_slots {
+            if other_index != index
+                && self.custom_skill_display_name_for_slot(other_index, other_skill) == label
+            {
+                return true;
+            }
+        }
+
+        SKILL_SPECS
+            .iter()
+            .any(|skill| !custom_bases.contains(&skill.id) && skill.name == label)
+    }
+
     fn normalize_custom_occupation_slot_labels(&mut self) {
         let valid_labeled_slots: HashSet<usize> = self
             .custom_occupation
@@ -168,19 +189,24 @@ impl CoC7eApp {
         index: usize,
     ) -> Option<&'static str> {
         let skill = Skill::from_name(self.custom_occupation.skills.get(index)?.trim())?;
-        let duplicate_indices = self.slot_indices_for_skill(skill);
-        if duplicate_indices.len() < 2 {
-            return None;
-        }
-
         let label = self
             .custom_occupation
             .skill_slot_labels
             .get(&index)
             .map(|label| label.trim())
             .unwrap_or_default();
+
+        if self.visible_custom_slot_label_conflict(index, label) {
+            return Some("Custom skill labels must not duplicate another visible skill row.");
+        }
+
+        let duplicate_indices = self.slot_indices_for_skill(skill);
+        if duplicate_indices.len() < 2 {
+            return None;
+        }
+
         if label.is_empty() || self.custom_slot_label_conflict(index, skill, label) {
-            Some("Duplicate custom specialties need distinct labels.")
+            Some("Duplicate custom slots need distinct labels.")
         } else {
             None
         }
@@ -460,6 +486,9 @@ impl CoC7eApp {
 
         let normalized = Self::normalized_custom_slot_label(normalized);
         if duplicate_count > 1 && self.custom_slot_label_conflict(index, skill, &normalized) {
+            return false;
+        }
+        if self.visible_custom_slot_label_conflict(index, &normalized) {
             return false;
         }
 

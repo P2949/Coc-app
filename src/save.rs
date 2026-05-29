@@ -32,7 +32,7 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
     (replay_sides, normalized)
 }
 
-fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
+fn invalid_import_entries(value: &serde_json::Value) -> Vec<String> {
     let mut unknown = Vec::new();
 
     if let Some(allocations) = value.get("allocations") {
@@ -65,20 +65,31 @@ fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
         }
     }
 
-    if let Some(raw_labels) = value
-        .get("custom_occupation")
-        .and_then(|custom_occupation| custom_occupation.get("skill_slot_labels"))
-    {
-        if let Some(labels) = raw_labels.as_object() {
-            for (slot, label) in labels {
-                if slot.parse::<usize>().is_err() {
-                    unknown.push(format!("skill_slot_labels: {slot}"));
-                } else if !label.is_string() {
-                    unknown.push(format!("skill_slot_labels[{slot}]: non-string label"));
+    if let Some(custom_occupation) = value.get("custom_occupation") {
+        if let Some(raw_labels) = custom_occupation.get("skill_labels") {
+            if let Some(labels) = raw_labels.as_object() {
+                for (skill, label) in labels {
+                    if !label.is_string() {
+                        unknown.push(format!("skill_labels[{skill}]: non-string label"));
+                    }
                 }
+            } else if !raw_labels.is_null() {
+                unknown.push("skill_labels: expected object".to_owned());
             }
-        } else if !raw_labels.is_null() {
-            unknown.push("skill_slot_labels: expected object".to_owned());
+        }
+
+        if let Some(raw_labels) = custom_occupation.get("skill_slot_labels") {
+            if let Some(labels) = raw_labels.as_object() {
+                for (slot, label) in labels {
+                    if slot.parse::<usize>().is_err() {
+                        unknown.push(format!("skill_slot_labels: {slot}"));
+                    } else if !label.is_string() {
+                        unknown.push(format!("skill_slot_labels[{slot}]: non-string label"));
+                    }
+                }
+            } else if !raw_labels.is_null() {
+                unknown.push("skill_slot_labels: expected object".to_owned());
+            }
         }
     }
 
@@ -105,10 +116,10 @@ fn migrate_save_value(
         }
     }
 
-    let unknown_skills = unknown_allocation_skills(&value);
+    let invalid_entries = invalid_import_entries(&value);
     let save = serde_json::from_value(value)
         .map_err(|error| format!("could not parse JSON save: {error}"))?;
-    Ok((save, unknown_skills))
+    Ok((save, invalid_entries))
 }
 
 impl CoC7eApp {
@@ -190,9 +201,11 @@ impl CoC7eApp {
 
         let value: serde_json::Value = serde_json::from_str(trimmed)
             .map_err(|error| format!("could not parse JSON save: {error}"))?;
-        let (save, unknown_skills) = migrate_save_value(value)?;
+        let (save, invalid_entries) = migrate_save_value(value)?;
         let mut report = self.load_save_file(save);
-        report.removed_unknown_skills.extend(unknown_skills);
+        report
+            .removed_unknown_import_entries
+            .extend(invalid_entries);
         Ok(report)
     }
 
