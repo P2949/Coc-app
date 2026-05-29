@@ -13,6 +13,25 @@ fn migrate_legacy_to_current(value: &mut serde_json::Value) {
     }
 }
 
+fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool) {
+    let was_truncated = roll_sides.len() > MAX_RNG_ROLL_HISTORY;
+    let mut normalized = was_truncated;
+    let replay_sides = roll_sides
+        .into_iter()
+        .take(MAX_RNG_ROLL_HISTORY)
+        .filter(|sides| {
+            if VALID_RNG_ROLL_SIDES.contains(sides) {
+                true
+            } else {
+                normalized = true;
+                false
+            }
+        })
+        .collect();
+
+    (replay_sides, normalized)
+}
+
 fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
     let mut unknown = Vec::new();
     let Some(allocations) = value.get("allocations") else {
@@ -162,8 +181,13 @@ impl CoC7eApp {
     }
 
     pub(crate) fn load_save_file(&mut self, save: InvestigatorSaveFile) -> SanitizeReport {
+        let mut normalized_import_fields = Vec::new();
+        let imported_age = save.concept.age;
         self.concept = save.concept;
         self.concept.age = self.concept.age.clamp(15, 89);
+        if imported_age != self.concept.age {
+            normalized_import_fields.push(format!("age: {imported_age} → {}", self.concept.age));
+        }
         self.last_age_bracket_index = get_age_bracket_index(self.concept.age);
         self.char_method = save.char_method;
         self.chars = save.chars;
@@ -174,19 +198,9 @@ impl CoC7eApp {
             save.rng_seed
         };
         let mut rng = AppRng::seeded(self.rng_seed);
-        let mut normalized_rng_state = save.rng_seed == 0;
-        let replay_sides: Vec<u32> = save
-            .rng_roll_sides
-            .into_iter()
-            .filter(|sides| {
-                if *sides == 0 {
-                    normalized_rng_state = true;
-                    false
-                } else {
-                    true
-                }
-            })
-            .collect();
+        let (replay_sides, normalized_rng_history) =
+            normalize_imported_rng_roll_history(save.rng_roll_sides);
+        let normalized_rng_state = save.rng_seed == 0 || normalized_rng_history;
         for sides in &replay_sides {
             let _ = rng.roll_inclusive(*sides);
         }
@@ -194,16 +208,27 @@ impl CoC7eApp {
         self.rng = rng;
         self.luck_state = save.luck_state;
         self.age_deductions = save.age_deductions;
+        let imported_edu_bonus = save.edu_bonus;
         self.edu_bonus = save.edu_bonus.clamp(0, MAX_CREATION_VALUE);
+        if imported_edu_bonus != self.edu_bonus {
+            normalized_import_fields.push(format!(
+                "EDU bonus: {imported_edu_bonus} → {}",
+                self.edu_bonus
+            ));
+        }
         self.edu_check_rolls = save.edu_check_rolls;
-        self.occupation_id = if save.occupation_id == CUSTOM_OCCUPATION_ID
+        let imported_occupation_id = save.occupation_id.clone();
+        let occupation_is_known = save.occupation_id == CUSTOM_OCCUPATION_ID
             || self
                 .occupations
                 .iter()
-                .any(|occupation| occupation.name == save.occupation_id)
-        {
+                .any(|occupation| occupation.name == save.occupation_id);
+        self.occupation_id = if occupation_is_known {
             save.occupation_id
         } else {
+            if !imported_occupation_id.trim().is_empty() {
+                normalized_import_fields.push(format!("occupation: {imported_occupation_id}"));
+            }
             String::new()
         };
         self.formula_key = save.formula_key;
@@ -242,6 +267,9 @@ impl CoC7eApp {
         report
             .removed_backstory_categories
             .extend(removed_backstory_categories);
+        report
+            .normalized_import_fields
+            .extend(normalized_import_fields);
         self.refresh_reachability();
         report
     }

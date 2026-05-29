@@ -14,6 +14,8 @@ pub(crate) const INVESTIGATOR_SAVE_VERSION: u32 = 2;
 pub(crate) const CUSTOM_OCCUPATION_MIN_SKILL_COUNT: usize = 1;
 pub(crate) const CUSTOM_OCCUPATION_SKILL_COUNT: usize = 8;
 pub(crate) const DEFAULT_RNG_SEED: u64 = 0xC0C7_E7E5_1234_5678;
+pub(crate) const MAX_RNG_ROLL_HISTORY: usize = 4096;
+pub(crate) const VALID_RNG_ROLL_SIDES: &[u32] = &[6, 10, 100];
 // Optional helper budget, not an official CoC 7e point-buy rule.
 // 460 is the total used by this app's balanced adjustable preset.
 pub(crate) const POINT_BUY_BUDGET: i32 = 460;
@@ -818,6 +820,7 @@ pub(crate) struct SanitizeReport {
     pub(crate) removed_occupation_choices: Vec<String>,
     pub(crate) normalized_custom_occupation: bool,
     pub(crate) normalized_rng_state: bool,
+    pub(crate) normalized_import_fields: Vec<String>,
 }
 
 impl SanitizeReport {
@@ -836,6 +839,7 @@ impl SanitizeReport {
             && self.removed_occupation_choices.is_empty()
             && !self.normalized_custom_occupation
             && !self.normalized_rng_state
+            && self.normalized_import_fields.is_empty()
     }
 
     pub(crate) fn summary(&self) -> String {
@@ -936,6 +940,17 @@ impl SanitizeReport {
         }
         if self.normalized_rng_state {
             parts.push("normalized RNG state".to_owned());
+        }
+        if !self.normalized_import_fields.is_empty() {
+            parts.push(format!(
+                "normalized {} imported field{}",
+                self.normalized_import_fields.len(),
+                if self.normalized_import_fields.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
         }
         if parts.is_empty() {
             "no corrections".to_owned()

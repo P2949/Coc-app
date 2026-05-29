@@ -3017,6 +3017,32 @@ fn duplicate_custom_slot_labels_are_rejected_without_deleting_skills() {
 }
 
 #[test]
+fn custom_slot_label_sanitizer_compares_truncated_labels() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.custom_occupation.required_skill_count = 2;
+    app.custom_occupation.skills =
+        vec!["Language (Other)".to_owned(), "Language (Other)".to_owned()];
+    let shared_prefix = "L".repeat(64);
+    app.custom_occupation
+        .skill_slot_labels
+        .insert(0, format!("{shared_prefix}A"));
+    app.custom_occupation
+        .skill_slot_labels
+        .insert(1, format!("{shared_prefix}B"));
+
+    app.sanitize_custom_occupation();
+
+    assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
+    assert_eq!(app.custom_occupation.skills[1], "");
+    assert_eq!(
+        app.custom_occupation.skill_slot_labels.get(&0),
+        Some(&shared_prefix)
+    );
+    assert!(!app.custom_occupation.skill_slot_labels.contains_key(&1));
+}
+
+#[test]
 fn stale_generated_duplicate_label_is_removed_when_group_shrinks() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
@@ -3136,6 +3162,50 @@ fn imported_non_custom_occupation_drops_hidden_custom_allocations() {
             .any(|entry| entry.contains("custom skill slot 1")),
         "expected hidden custom allocations to be reported, got {report:?}"
     );
+}
+
+#[test]
+fn inactive_duplicate_slot_labels_are_protected_when_editing_active_slot() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+    let inactive_label = app
+        .custom_occupation
+        .skill_slot_labels
+        .get(&1)
+        .cloned()
+        .expect("inactive duplicate should have a label before lowering count");
+
+    app.set_custom_occupation_required_skill_count(1);
+    app.sanitize_state();
+
+    assert!(
+        !app.set_custom_occupation_skill_label_for_slot(0, String::new()),
+        "active duplicate label should not be clearable while an inactive same-skill slot exists"
+    );
+    assert!(
+        !app.set_custom_occupation_skill_label_for_slot(0, inactive_label),
+        "active duplicate label should not be reusable from an inactive same-skill slot"
+    );
+
+    app.set_custom_occupation_required_skill_count(2);
+    app.sanitize_state();
+
+    assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
+    assert_eq!(app.custom_occupation.skills[1], "Language (Other)");
+    let first = app
+        .custom_occupation
+        .skill_slot_labels
+        .get(&0)
+        .expect("first duplicate should keep a label");
+    let second = app
+        .custom_occupation
+        .skill_slot_labels
+        .get(&1)
+        .expect("second duplicate should keep a label");
+    assert_ne!(first, second);
 }
 
 #[test]
@@ -3299,6 +3369,45 @@ fn rng_roll_history_restores_next_roll_position() {
 }
 
 #[test]
+fn import_report_includes_direct_load_time_corrections() {
+    let app = test_app();
+    let mut save = app.save_file();
+    save.concept.age = 999;
+    save.edu_bonus = 999;
+    save.occupation_id = "Made Up Occupation".to_owned();
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&json)
+        .expect("save with direct load-time corrections should import");
+
+    assert_eq!(loaded.concept.age, 89);
+    assert_eq!(loaded.occupation_id, "");
+    assert!(
+        report
+            .normalized_import_fields
+            .iter()
+            .any(|entry| entry.contains("age: 999 → 89")),
+        "expected age normalization to be reported, got {report:?}"
+    );
+    assert!(
+        report
+            .normalized_import_fields
+            .iter()
+            .any(|entry| entry.contains("EDU bonus: 999 → 99")),
+        "expected EDU bonus normalization to be reported, got {report:?}"
+    );
+    assert!(
+        report
+            .normalized_import_fields
+            .iter()
+            .any(|entry| entry.contains("occupation: Made Up Occupation")),
+        "expected unknown occupation normalization to be reported, got {report:?}"
+    );
+}
+
+#[test]
 fn import_report_includes_non_allocation_corrections() {
     let app = test_app();
     let json = app.export_json_save().expect("save should serialize");
@@ -3337,6 +3446,40 @@ fn import_report_includes_non_allocation_corrections() {
         "{report:?}"
     );
     assert!(report.normalized_rng_state, "{report:?}");
+}
+
+#[test]
+fn json_import_truncates_and_filters_rng_roll_history() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    let mut roll_sides = vec![
+        serde_json::json!(6),
+        serde_json::json!(12),
+        serde_json::json!(0),
+        serde_json::json!(10),
+    ];
+    roll_sides.extend((0..MAX_RNG_ROLL_HISTORY).map(|_| serde_json::json!(100)));
+    value["rng_roll_sides"] = serde_json::Value::Array(roll_sides);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("oversized RNG history should be normalized, not fatal");
+
+    assert!(report.normalized_rng_state, "{report:?}");
+    assert!(loaded.rng_roll_sides.len() <= MAX_RNG_ROLL_HISTORY);
+    assert!(
+        loaded
+            .rng_roll_sides
+            .iter()
+            .all(|sides| VALID_RNG_ROLL_SIDES.contains(sides)),
+        "unexpected RNG sides after normalization: {:?}",
+        loaded.rng_roll_sides
+    );
+    assert_eq!(loaded.rng_roll_sides.first(), Some(&6));
+    assert_eq!(loaded.rng_roll_sides.get(1), Some(&10));
 }
 
 #[test]

@@ -80,6 +80,21 @@ impl CoC7eApp {
         format!("{} {}", skill.name(), ordinal + 1)
     }
 
+    fn normalized_custom_slot_label(label: &str) -> String {
+        label.trim().chars().take(64).collect()
+    }
+
+    fn slot_indices_for_skill(&self, skill: Skill) -> Vec<usize> {
+        self.custom_occupation
+            .skills
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot_skill)| {
+                (Skill::from_name(slot_skill.trim()) == Some(skill)).then_some(index)
+            })
+            .collect()
+    }
+
     fn active_slot_indices_for_skill(&self, skill: Skill) -> Vec<usize> {
         self.custom_occupation
             .skills
@@ -92,20 +107,60 @@ impl CoC7eApp {
             .collect()
     }
 
-    fn active_duplicate_label_conflict(&self, index: usize, skill: Skill, label: &str) -> bool {
-        let label = label.trim();
+    fn duplicate_label_conflict_for_indices(
+        &self,
+        index: usize,
+        label: &str,
+        indices: &[usize],
+    ) -> bool {
+        let label = Self::normalized_custom_slot_label(label);
         !label.is_empty()
-            && self
-                .active_slot_indices_for_skill(skill)
-                .into_iter()
-                .any(|other_index| {
-                    other_index != index
-                        && self
-                            .custom_occupation
-                            .skill_slot_labels
-                            .get(&other_index)
-                            .is_some_and(|other| other.trim() == label)
-                })
+            && indices.iter().copied().any(|other_index| {
+                other_index != index
+                    && self
+                        .custom_occupation
+                        .skill_slot_labels
+                        .get(&other_index)
+                        .is_some_and(|other| Self::normalized_custom_slot_label(other) == label)
+            })
+    }
+
+    fn custom_slot_label_conflict(&self, index: usize, skill: Skill, label: &str) -> bool {
+        self.duplicate_label_conflict_for_indices(index, label, &self.slot_indices_for_skill(skill))
+    }
+
+    fn normalize_custom_occupation_slot_labels(&mut self) {
+        let valid_labeled_slots: HashSet<usize> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .enumerate()
+            .filter_map(|(index, skill)| {
+                if skill.trim().is_empty() {
+                    None
+                } else {
+                    Some(index)
+                }
+            })
+            .collect();
+        self.custom_occupation
+            .skill_slot_labels
+            .retain(|index, label| {
+                valid_labeled_slots.contains(index)
+                    && !Self::normalized_custom_slot_label(label).is_empty()
+            });
+        let normalized_slot_labels: Vec<(usize, String)> = self
+            .custom_occupation
+            .skill_slot_labels
+            .iter()
+            .map(|(index, label)| (*index, Self::normalized_custom_slot_label(label)))
+            .collect();
+        self.custom_occupation.skill_slot_labels.clear();
+        for (index, label) in normalized_slot_labels {
+            self.custom_occupation
+                .skill_slot_labels
+                .insert(index, label);
+        }
     }
 
     pub(crate) fn custom_occupation_slot_label_warning(
@@ -113,7 +168,7 @@ impl CoC7eApp {
         index: usize,
     ) -> Option<&'static str> {
         let skill = Skill::from_name(self.custom_occupation.skills.get(index)?.trim())?;
-        let duplicate_indices = self.active_slot_indices_for_skill(skill);
+        let duplicate_indices = self.slot_indices_for_skill(skill);
         if duplicate_indices.len() < 2 {
             return None;
         }
@@ -124,7 +179,7 @@ impl CoC7eApp {
             .get(&index)
             .map(|label| label.trim())
             .unwrap_or_default();
-        if label.is_empty() || self.active_duplicate_label_conflict(index, skill, label) {
+        if label.is_empty() || self.custom_slot_label_conflict(index, skill, label) {
             Some("Duplicate custom specialties need distinct labels.")
         } else {
             None
@@ -132,15 +187,7 @@ impl CoC7eApp {
     }
 
     fn cleanup_stale_generated_duplicate_labels_for(&mut self, skill: Skill) {
-        let all_indices: Vec<usize> = self
-            .custom_occupation
-            .skills
-            .iter()
-            .enumerate()
-            .filter_map(|(index, slot_skill)| {
-                (Skill::from_name(slot_skill.trim()) == Some(skill)).then_some(index)
-            })
-            .collect();
+        let all_indices = self.slot_indices_for_skill(skill);
         if all_indices.len() != 1 {
             return;
         }
@@ -150,7 +197,7 @@ impl CoC7eApp {
             .custom_occupation
             .skill_slot_labels
             .get(&index)
-            .map(|label| label.trim().to_owned())
+            .map(|label| Self::normalized_custom_slot_label(label))
         else {
             return;
         };
@@ -177,7 +224,7 @@ impl CoC7eApp {
                 .custom_occupation
                 .skill_slot_labels
                 .get(index)
-                .map(|label| label.trim().to_owned())
+                .map(|label| Self::normalized_custom_slot_label(label))
                 .unwrap_or_default();
             if !existing.is_empty() && seen.insert(existing) {
                 continue;
@@ -208,6 +255,8 @@ impl CoC7eApp {
             }
         }
 
+        self.normalize_custom_occupation_slot_labels();
+
         let required_count = self.custom_occupation_required_skill_count();
         let mut active_slots_by_skill: HashMap<Skill, Vec<usize>> = HashMap::new();
         for (index, skill) in self
@@ -234,9 +283,9 @@ impl CoC7eApp {
                     .custom_occupation
                     .skill_slot_labels
                     .get(index)
-                    .map(|label| label.trim())
+                    .map(|label| Self::normalized_custom_slot_label(label))
                     .unwrap_or_default();
-                !label.is_empty() && seen_labels.insert(label.to_owned())
+                !label.is_empty() && seen_labels.insert(label)
             });
 
             if !has_distinct_slot_labels {
@@ -270,35 +319,6 @@ impl CoC7eApp {
         self.custom_occupation.skill_labels.clear();
         for (skill, label) in normalized_labels {
             self.custom_occupation.skill_labels.insert(skill, label);
-        }
-
-        let valid_labeled_slots: HashSet<usize> = self
-            .custom_occupation
-            .skills
-            .iter()
-            .enumerate()
-            .filter_map(|(index, skill)| {
-                if skill.trim().is_empty() {
-                    None
-                } else {
-                    Some(index)
-                }
-            })
-            .collect();
-        self.custom_occupation
-            .skill_slot_labels
-            .retain(|index, label| valid_labeled_slots.contains(index) && !label.trim().is_empty());
-        let normalized_slot_labels: Vec<(usize, String)> = self
-            .custom_occupation
-            .skill_slot_labels
-            .iter()
-            .map(|(index, label)| (*index, label.trim().chars().take(64).collect()))
-            .collect();
-        self.custom_occupation.skill_slot_labels.clear();
-        for (index, label) in normalized_slot_labels {
-            self.custom_occupation
-                .skill_slot_labels
-                .insert(index, label);
         }
     }
 
@@ -469,7 +489,7 @@ impl CoC7eApp {
             return false;
         };
 
-        let duplicate_count = self.active_slot_indices_for_skill(skill).len();
+        let duplicate_count = self.slot_indices_for_skill(skill).len();
         let normalized = next.trim();
         if normalized.is_empty() {
             if duplicate_count > 1 {
@@ -479,8 +499,8 @@ impl CoC7eApp {
             return true;
         }
 
-        let normalized = normalized.chars().take(64).collect::<String>();
-        if duplicate_count > 1 && self.active_duplicate_label_conflict(index, skill, &normalized) {
+        let normalized = Self::normalized_custom_slot_label(normalized);
+        if duplicate_count > 1 && self.custom_slot_label_conflict(index, skill, &normalized) {
             return false;
         }
 
