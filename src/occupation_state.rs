@@ -184,6 +184,30 @@ impl CoC7eApp {
         }
     }
 
+    fn remove_visible_custom_slot_label_conflicts(&mut self) {
+        loop {
+            let conflicting_indices: Vec<usize> = self
+                .custom_occupation_skill_slots()
+                .into_iter()
+                .filter_map(|(index, _)| {
+                    self.custom_occupation
+                        .skill_slot_labels
+                        .get(&index)
+                        .filter(|label| self.visible_custom_slot_label_conflict(index, label))
+                        .map(|_| index)
+                })
+                .collect();
+
+            if conflicting_indices.is_empty() {
+                break;
+            }
+
+            for index in conflicting_indices {
+                self.custom_occupation.skill_slot_labels.remove(&index);
+            }
+        }
+    }
+
     pub(crate) fn custom_occupation_slot_label_warning(
         &self,
         index: usize,
@@ -272,6 +296,10 @@ impl CoC7eApp {
             }
         }
 
+        for skill in active_slots_by_skill.keys().copied().collect::<Vec<_>>() {
+            self.ensure_distinct_slot_labels_for_active_duplicates(skill);
+        }
+        self.remove_visible_custom_slot_label_conflicts();
         for skill in active_slots_by_skill.keys().copied().collect::<Vec<_>>() {
             self.ensure_distinct_slot_labels_for_active_duplicates(skill);
         }
@@ -416,6 +444,7 @@ impl CoC7eApp {
         self.occupation_choices.clear();
         self.allocations.occupation_points.clear();
         self.allocations.custom_occupation_points.clear();
+        self.allocations.custom_personal_points.clear();
     }
 
     pub(crate) fn set_formula_key(&mut self, next: FormulaKey) {

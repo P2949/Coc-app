@@ -3139,11 +3139,14 @@ fn changing_occupation_clears_custom_occupation_points() {
     app.set_custom_occupation_required_skill_count(1);
     assert!(app.set_custom_occupation_skill(0, "Library Use".to_owned()));
     app.set_occupation_allocation_for_instance(Skill::LibraryUse, Some(0), 20);
+    app.set_personal_allocation_for_instance(Skill::LibraryUse, Some(0), 10);
     assert_eq!(app.allocations.custom_occupation_points.get(&0), Some(&20));
+    assert_eq!(app.allocations.custom_personal_points.get(&0), Some(&10));
 
     app.set_occupation("Nurse".to_owned());
 
     assert!(app.allocations.custom_occupation_points.is_empty());
+    assert!(app.allocations.custom_personal_points.is_empty());
 }
 
 #[test]
@@ -3308,6 +3311,56 @@ fn json_import_reports_and_ignores_malformed_custom_allocation_keys() {
 }
 
 #[test]
+fn json_import_reports_and_ignores_malformed_allocation_values() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    value["allocations"]["occupation_points"] = serde_json::json!({
+        "Library Use": "20",
+        "Spot Hidden": 20
+    });
+    value["allocations"]["personal_points"] = serde_json::json!({
+        "Listen": null
+    });
+    value["allocations"]["custom_occupation_points"] = serde_json::json!({
+        "0": "30"
+    });
+    value["allocations"]["custom_personal_points"] = serde_json::json!({
+        "1": []
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("malformed allocation values should be ignored, not fatal");
+
+    assert!(
+        !loaded
+            .allocations
+            .occupation_points
+            .contains_key(&Skill::LibraryUse)
+    );
+    assert!(loaded.allocations.personal_points.is_empty());
+    assert!(loaded.allocations.custom_occupation_points.is_empty());
+    assert!(loaded.allocations.custom_personal_points.is_empty());
+    for expected in [
+        "occupation_points[Library Use]: non-integer allocation value",
+        "personal_points[Listen]: non-integer allocation value",
+        "custom_occupation_points[0]: non-integer allocation value",
+        "custom_personal_points[1]: non-integer allocation value",
+    ] {
+        assert!(
+            report
+                .removed_unknown_import_entries
+                .iter()
+                .any(|entry| entry.contains(expected)),
+            "expected {expected:?} report, got {report:?}"
+        );
+    }
+}
+
+#[test]
 fn json_import_reports_and_ignores_malformed_custom_slot_label_keys() {
     let app = test_app();
     let json = app.export_json_save().expect("save should serialize");
@@ -3432,6 +3485,46 @@ fn custom_slot_labels_cannot_duplicate_visible_skill_rows() {
         "custom labels should not duplicate other custom rows"
     );
     assert!(app.set_custom_occupation_skill_label_for_slot(0, "Pilot (Boat)".to_owned()));
+}
+
+#[test]
+fn sanitize_custom_occupation_removes_visible_label_collisions() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Pilot".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+    app.custom_occupation
+        .skill_slot_labels
+        .insert(0, "Library Use".to_owned());
+    app.custom_occupation
+        .skill_slot_labels
+        .insert(1, "Pilot".to_owned());
+
+    app.sanitize_state();
+
+    assert!(!app.custom_occupation.skill_slot_labels.contains_key(&0));
+    assert!(!app.custom_occupation.skill_slot_labels.contains_key(&1));
+    let row_names = app
+        .sheet_math()
+        .skill_rows
+        .into_iter()
+        .map(|row| row.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Library Use")
+            .count(),
+        1
+    );
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Pilot")
+            .count(),
+        1
+    );
 }
 
 #[test]

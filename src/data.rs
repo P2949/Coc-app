@@ -1034,17 +1034,50 @@ impl SanitizeReport {
 
 #[derive(Serialize, Deserialize)]
 struct SerializableAllocationState {
-    occupation_points: BTreeMap<String, i32>,
-    personal_points: BTreeMap<String, i32>,
-    #[serde(default)]
-    custom_occupation_points: BTreeMap<String, i32>,
-    #[serde(default)]
-    custom_personal_points: BTreeMap<String, i32>,
+    #[serde(default, deserialize_with = "deserialize_allocation_map")]
+    occupation_points: BTreeMap<String, serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_allocation_map")]
+    personal_points: BTreeMap<String, serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_allocation_map")]
+    custom_occupation_points: BTreeMap<String, serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_allocation_map")]
+    custom_personal_points: BTreeMap<String, serde_json::Value>,
 }
 
-fn parse_custom_allocation_points(raw: BTreeMap<String, i32>) -> HashMap<usize, i32> {
+fn deserialize_allocation_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, serde_json::Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(object
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect())
+}
+
+fn parse_allocation_value(value: &serde_json::Value) -> Option<i32> {
+    value.as_i64().and_then(|value| i32::try_from(value).ok())
+}
+
+fn parse_skill_allocation_points(raw: BTreeMap<String, serde_json::Value>) -> HashMap<Skill, i32> {
     raw.into_iter()
-        .filter_map(|(index, value)| index.parse::<usize>().ok().map(|index| (index, value)))
+        .filter_map(|(skill, value)| Skill::from_name(&skill).zip(parse_allocation_value(&value)))
+        .collect()
+}
+
+fn parse_custom_allocation_points(raw: BTreeMap<String, serde_json::Value>) -> HashMap<usize, i32> {
+    raw.into_iter()
+        .filter_map(|(index, value)| {
+            index
+                .parse::<usize>()
+                .ok()
+                .zip(parse_allocation_value(&value))
+        })
         .collect()
 }
 
@@ -1057,22 +1090,22 @@ impl Serialize for AllocationState {
             occupation_points: self
                 .occupation_points
                 .iter()
-                .map(|(skill, value)| (skill.name().to_owned(), *value))
+                .map(|(skill, value)| (skill.name().to_owned(), serde_json::Value::from(*value)))
                 .collect(),
             personal_points: self
                 .personal_points
                 .iter()
-                .map(|(skill, value)| (skill.name().to_owned(), *value))
+                .map(|(skill, value)| (skill.name().to_owned(), serde_json::Value::from(*value)))
                 .collect(),
             custom_occupation_points: self
                 .custom_occupation_points
                 .iter()
-                .map(|(index, value)| (index.to_string(), *value))
+                .map(|(index, value)| (index.to_string(), serde_json::Value::from(*value)))
                 .collect(),
             custom_personal_points: self
                 .custom_personal_points
                 .iter()
-                .map(|(index, value)| (index.to_string(), *value))
+                .map(|(index, value)| (index.to_string(), serde_json::Value::from(*value)))
                 .collect(),
         };
         raw.serialize(serializer)
@@ -1086,16 +1119,8 @@ impl<'de> Deserialize<'de> for AllocationState {
     {
         let raw = SerializableAllocationState::deserialize(deserializer)?;
         Ok(Self {
-            occupation_points: raw
-                .occupation_points
-                .into_iter()
-                .filter_map(|(skill, value)| Skill::from_name(&skill).map(|skill| (skill, value)))
-                .collect(),
-            personal_points: raw
-                .personal_points
-                .into_iter()
-                .filter_map(|(skill, value)| Skill::from_name(&skill).map(|skill| (skill, value)))
-                .collect(),
+            occupation_points: parse_skill_allocation_points(raw.occupation_points),
+            personal_points: parse_skill_allocation_points(raw.personal_points),
             custom_occupation_points: parse_custom_allocation_points(raw.custom_occupation_points),
             custom_personal_points: parse_custom_allocation_points(raw.custom_personal_points),
         })

@@ -32,34 +32,52 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
     (replay_sides, normalized)
 }
 
+fn allocation_value_is_i32(value: &serde_json::Value) -> bool {
+    value
+        .as_i64()
+        .is_some_and(|value| i32::try_from(value).is_ok())
+}
+
 fn invalid_import_entries(value: &serde_json::Value) -> Vec<String> {
     let mut unknown = Vec::new();
 
     if let Some(allocations) = value.get("allocations") {
         for field in ["occupation_points", "personal_points"] {
-            let Some(points) = allocations
-                .get(field)
-                .and_then(serde_json::Value::as_object)
-            else {
+            let Some(raw_points) = allocations.get(field) else {
                 continue;
             };
-            for skill in points.keys() {
+            let Some(points) = raw_points.as_object() else {
+                if !raw_points.is_null() {
+                    unknown.push(format!("{field}: expected object"));
+                }
+                continue;
+            };
+            for (skill, value) in points {
                 if Skill::from_name(skill).is_none() {
                     unknown.push(format!("{field}: {skill}"));
+                }
+                if !allocation_value_is_i32(value) {
+                    unknown.push(format!("{field}[{skill}]: non-integer allocation value"));
                 }
             }
         }
 
         for field in ["custom_occupation_points", "custom_personal_points"] {
-            let Some(points) = allocations
-                .get(field)
-                .and_then(serde_json::Value::as_object)
-            else {
+            let Some(raw_points) = allocations.get(field) else {
                 continue;
             };
-            for slot in points.keys() {
+            let Some(points) = raw_points.as_object() else {
+                if !raw_points.is_null() {
+                    unknown.push(format!("{field}: expected object"));
+                }
+                continue;
+            };
+            for (slot, value) in points {
                 if slot.parse::<usize>().is_err() {
                     unknown.push(format!("{field}: {slot}"));
+                }
+                if !allocation_value_is_i32(value) {
+                    unknown.push(format!("{field}[{slot}]: non-integer allocation value"));
                 }
             }
         }
