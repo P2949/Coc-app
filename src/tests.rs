@@ -3308,6 +3308,39 @@ fn json_import_reports_and_ignores_malformed_custom_allocation_keys() {
 }
 
 #[test]
+fn json_import_reports_and_ignores_malformed_custom_slot_label_keys() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    value["custom_occupation"]["skill_slot_labels"] = serde_json::json!({
+        "bad": "Language (Latin)",
+        "-1": "Language (Greek)",
+        "0": "Library Use"
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("malformed custom slot label keys should be ignored, not fatal");
+
+    assert!(
+        report
+            .removed_unknown_skills
+            .iter()
+            .any(|entry| entry.contains("skill_slot_labels: bad")),
+        "expected malformed bad label key report, got {report:?}"
+    );
+    assert!(
+        report
+            .removed_unknown_skills
+            .iter()
+            .any(|entry| entry.contains("skill_slot_labels: -1")),
+        "expected malformed -1 label key report, got {report:?}"
+    );
+}
+
+#[test]
 fn lowering_custom_required_skill_count_preserves_inactive_slots() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
@@ -3382,22 +3415,30 @@ fn rng_roll_history_restores_next_roll_position() {
 }
 
 #[test]
-fn live_rng_roll_history_is_bounded() {
-    let mut app = test_app();
+fn live_rng_roll_history_is_bounded_and_rollover_preserves_next_roll() {
+    let mut source = test_app();
     for _ in 0..(MAX_RNG_ROLL_HISTORY + 8) {
-        let _ = app.roll_die(6);
+        let _ = source.roll_die(6);
     }
 
-    assert_eq!(app.rng_roll_sides.len(), MAX_RNG_ROLL_HISTORY);
-    let json = app.export_json_save().expect("save should serialize");
+    assert_eq!(source.rng_roll_sides.len(), 8);
+    let json = source.export_json_save().expect("save should serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
     assert_eq!(
         value["rng_roll_sides"]
             .as_array()
             .expect("rng_roll_sides should be an array")
             .len(),
-        MAX_RNG_ROLL_HISTORY
+        source.rng_roll_sides.len()
     );
+
+    let mut loaded = test_app();
+    loaded
+        .import_json_save(&json)
+        .expect("rolled-over RNG history should import cleanly");
+    assert_eq!(loaded.rng_seed, source.rng_seed);
+    assert_eq!(loaded.rng_roll_sides, source.rng_roll_sides);
+    assert_eq!(loaded.roll_die(6), source.roll_die(6));
 }
 
 #[test]
@@ -3464,6 +3505,19 @@ fn import_report_includes_direct_load_time_corrections() {
             .any(|entry| entry.contains("occupation: Made Up Occupation")),
         "expected unknown occupation normalization to be reported, got {report:?}"
     );
+    let summary = report.summary();
+    assert!(
+        summary.contains("age: 999 → 89"),
+        "unexpected summary: {summary}"
+    );
+    assert!(
+        summary.contains("EDU bonus: 999 → 99"),
+        "unexpected summary: {summary}"
+    );
+    assert!(
+        summary.contains("occupation: Made Up Occupation"),
+        "unexpected summary: {summary}"
+    );
 }
 
 #[test]
@@ -3514,6 +3568,8 @@ fn json_import_truncates_and_filters_rng_roll_history() {
     let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
     let mut roll_sides = vec![
         serde_json::json!(6),
+        serde_json::json!(-1),
+        serde_json::json!("6"),
         serde_json::json!(12),
         serde_json::json!(0),
         serde_json::json!(10),

@@ -62,6 +62,15 @@ impl AppRng {
         debug_assert!(sides > 0);
         self.inner.random_range(1..=sides)
     }
+
+    pub(crate) fn reseed_from_stream(&mut self) -> u64 {
+        let seed = match self.inner.random::<u64>() {
+            0 => DEFAULT_RNG_SEED,
+            seed => seed,
+        };
+        self.inner = SmallRng::seed_from_u64(seed);
+        seed
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -683,6 +692,33 @@ fn default_custom_occupation_required_skill_count() -> usize {
     CUSTOM_OCCUPATION_SKILL_COUNT
 }
 
+fn parse_usize_label_map(
+    raw: &serde_json::Map<String, serde_json::Value>,
+) -> BTreeMap<usize, String> {
+    raw.iter()
+        .filter_map(|(index, label)| {
+            let label = label.as_str()?;
+            index
+                .parse::<usize>()
+                .ok()
+                .map(|index| (index, label.to_owned()))
+        })
+        .collect()
+}
+
+fn deserialize_skill_slot_labels<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<usize, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(parse_usize_label_map(object))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CustomOccupation {
     pub(crate) name: String,
@@ -696,7 +732,7 @@ pub(crate) struct CustomOccupation {
     // represented as independent custom occupation skill instances.
     #[serde(default)]
     pub(crate) skill_labels: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_skill_slot_labels")]
     pub(crate) skill_slot_labels: BTreeMap<usize, String>,
     pub(crate) skills: Vec<String>,
 }
@@ -942,14 +978,21 @@ impl SanitizeReport {
             parts.push("normalized RNG state".to_owned());
         }
         if !self.normalized_import_fields.is_empty() {
+            let mut details = self
+                .normalized_import_fields
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>();
+            if self.normalized_import_fields.len() > details.len() {
+                details.push(format!(
+                    "{} more",
+                    self.normalized_import_fields.len() - details.len()
+                ));
+            }
             parts.push(format!(
-                "normalized {} imported field{}",
-                self.normalized_import_fields.len(),
-                if self.normalized_import_fields.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
+                "normalized imported fields: {}",
+                details.join("; ")
             ));
         }
         if parts.is_empty() {
@@ -1037,6 +1080,25 @@ pub(crate) struct SavedOccupationChoice {
     pub(crate) value: String,
 }
 
+fn deserialize_rng_roll_sides<'de, D>(deserializer: D) -> Result<Vec<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(items) = raw.as_array() else {
+        return Ok(vec![0]);
+    };
+
+    Ok(items
+        .iter()
+        .map(|item| {
+            item.as_u64()
+                .and_then(|side| u32::try_from(side).ok())
+                .unwrap_or(0)
+        })
+        .collect())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct InvestigatorSaveFile {
     pub(crate) version: u32,
@@ -1046,7 +1108,7 @@ pub(crate) struct InvestigatorSaveFile {
     pub(crate) char_rolls: BTreeMap<String, DiceResult>,
     #[serde(default)]
     pub(crate) rng_seed: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_rng_roll_sides")]
     pub(crate) rng_roll_sides: Vec<u32>,
     pub(crate) luck_state: LuckState,
     pub(crate) age_deductions: CharacteristicValues,

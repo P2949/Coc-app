@@ -34,34 +34,45 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
 
 fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
     let mut unknown = Vec::new();
-    let Some(allocations) = value.get("allocations") else {
-        return unknown;
-    };
 
-    for field in ["occupation_points", "personal_points"] {
-        let Some(points) = allocations
-            .get(field)
-            .and_then(serde_json::Value::as_object)
-        else {
-            continue;
-        };
-        for skill in points.keys() {
-            if Skill::from_name(skill).is_none() {
-                unknown.push(format!("{field}: {skill}"));
+    if let Some(allocations) = value.get("allocations") {
+        for field in ["occupation_points", "personal_points"] {
+            let Some(points) = allocations
+                .get(field)
+                .and_then(serde_json::Value::as_object)
+            else {
+                continue;
+            };
+            for skill in points.keys() {
+                if Skill::from_name(skill).is_none() {
+                    unknown.push(format!("{field}: {skill}"));
+                }
+            }
+        }
+
+        for field in ["custom_occupation_points", "custom_personal_points"] {
+            let Some(points) = allocations
+                .get(field)
+                .and_then(serde_json::Value::as_object)
+            else {
+                continue;
+            };
+            for slot in points.keys() {
+                if slot.parse::<usize>().is_err() {
+                    unknown.push(format!("{field}: {slot}"));
+                }
             }
         }
     }
 
-    for field in ["custom_occupation_points", "custom_personal_points"] {
-        let Some(points) = allocations
-            .get(field)
-            .and_then(serde_json::Value::as_object)
-        else {
-            continue;
-        };
-        for slot in points.keys() {
+    if let Some(labels) = value
+        .get("custom_occupation")
+        .and_then(|custom_occupation| custom_occupation.get("skill_slot_labels"))
+        .and_then(serde_json::Value::as_object)
+    {
+        for slot in labels.keys() {
             if slot.parse::<usize>().is_err() {
-                unknown.push(format!("{field}: {slot}"));
+                unknown.push(format!("skill_slot_labels: {slot}"));
             }
         }
     }
