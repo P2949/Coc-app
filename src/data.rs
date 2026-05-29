@@ -950,9 +950,15 @@ struct SerializableAllocationState {
     occupation_points: BTreeMap<String, i32>,
     personal_points: BTreeMap<String, i32>,
     #[serde(default)]
-    custom_occupation_points: BTreeMap<usize, i32>,
+    custom_occupation_points: BTreeMap<String, i32>,
     #[serde(default)]
-    custom_personal_points: BTreeMap<usize, i32>,
+    custom_personal_points: BTreeMap<String, i32>,
+}
+
+fn parse_custom_allocation_points(raw: BTreeMap<String, i32>) -> HashMap<usize, i32> {
+    raw.into_iter()
+        .filter_map(|(index, value)| index.parse::<usize>().ok().map(|index| (index, value)))
+        .collect()
 }
 
 impl Serialize for AllocationState {
@@ -974,12 +980,12 @@ impl Serialize for AllocationState {
             custom_occupation_points: self
                 .custom_occupation_points
                 .iter()
-                .map(|(index, value)| (*index, *value))
+                .map(|(index, value)| (index.to_string(), *value))
                 .collect(),
             custom_personal_points: self
                 .custom_personal_points
                 .iter()
-                .map(|(index, value)| (*index, *value))
+                .map(|(index, value)| (index.to_string(), *value))
                 .collect(),
         };
         raw.serialize(serializer)
@@ -1003,8 +1009,8 @@ impl<'de> Deserialize<'de> for AllocationState {
                 .into_iter()
                 .filter_map(|(skill, value)| Skill::from_name(&skill).map(|skill| (skill, value)))
                 .collect(),
-            custom_occupation_points: raw.custom_occupation_points.into_iter().collect(),
-            custom_personal_points: raw.custom_personal_points.into_iter().collect(),
+            custom_occupation_points: parse_custom_allocation_points(raw.custom_occupation_points),
+            custom_personal_points: parse_custom_allocation_points(raw.custom_personal_points),
         })
     }
 }

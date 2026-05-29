@@ -132,12 +132,20 @@ impl CoC7eApp {
     }
 
     fn cleanup_stale_generated_duplicate_labels_for(&mut self, skill: Skill) {
-        let indices = self.active_slot_indices_for_skill(skill);
-        if indices.len() != 1 {
+        let all_indices: Vec<usize> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot_skill)| {
+                (Skill::from_name(slot_skill.trim()) == Some(skill)).then_some(index)
+            })
+            .collect();
+        if all_indices.len() != 1 {
             return;
         }
 
-        let index = indices[0];
+        let index = all_indices[0];
         let Some(label) = self
             .custom_occupation
             .skill_slot_labels

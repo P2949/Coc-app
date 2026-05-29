@@ -15,10 +15,13 @@ fn migrate_legacy_to_current(value: &mut serde_json::Value) {
 
 fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
     let mut unknown = Vec::new();
+    let Some(allocations) = value.get("allocations") else {
+        return unknown;
+    };
+
     for field in ["occupation_points", "personal_points"] {
-        let Some(points) = value
-            .get("allocations")
-            .and_then(|allocations| allocations.get(field))
+        let Some(points) = allocations
+            .get(field)
             .and_then(serde_json::Value::as_object)
         else {
             continue;
@@ -29,6 +32,21 @@ fn unknown_allocation_skills(value: &serde_json::Value) -> Vec<String> {
             }
         }
     }
+
+    for field in ["custom_occupation_points", "custom_personal_points"] {
+        let Some(points) = allocations
+            .get(field)
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        for slot in points.keys() {
+            if slot.parse::<usize>().is_err() {
+                unknown.push(format!("{field}: {slot}"));
+            }
+        }
+    }
+
     unknown
 }
 

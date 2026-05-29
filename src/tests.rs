@@ -3108,6 +3108,123 @@ fn changing_occupation_clears_custom_occupation_points() {
 }
 
 #[test]
+fn imported_non_custom_occupation_drops_hidden_custom_allocations() {
+    let mut source = test_app();
+    source.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    source.set_custom_occupation_required_skill_count(1);
+    assert!(source.set_custom_occupation_skill(0, "Library Use".to_owned()));
+    source.allocations.custom_occupation_points.insert(0, 20);
+    source.allocations.custom_personal_points.insert(0, 10);
+
+    let json = source.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    value["occupation_id"] = serde_json::json!("Nurse");
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("non-custom save should import after dropping hidden custom points");
+
+    assert_eq!(loaded.occupation_id, "Nurse");
+    assert!(loaded.allocations.custom_occupation_points.is_empty());
+    assert!(loaded.allocations.custom_personal_points.is_empty());
+    assert!(
+        report
+            .removed_allocations
+            .iter()
+            .any(|entry| entry.contains("custom skill slot 1")),
+        "expected hidden custom allocations to be reported, got {report:?}"
+    );
+}
+
+#[test]
+fn lowering_then_raising_required_count_preserves_duplicate_custom_specialties() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+    let first_label = app.custom_occupation.skill_slot_labels.get(&0).cloned();
+    let second_label = app.custom_occupation.skill_slot_labels.get(&1).cloned();
+    assert!(
+        first_label
+            .as_deref()
+            .is_some_and(|label| !label.trim().is_empty())
+    );
+    assert!(
+        second_label
+            .as_deref()
+            .is_some_and(|label| !label.trim().is_empty())
+    );
+
+    app.set_custom_occupation_required_skill_count(1);
+    app.sanitize_state();
+    assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
+    assert_eq!(app.custom_occupation.skills[1], "Language (Other)");
+
+    app.set_custom_occupation_required_skill_count(2);
+    app.sanitize_state();
+
+    assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
+    assert_eq!(app.custom_occupation.skills[1], "Language (Other)");
+    assert!(app.custom_occupation.skill_slot_labels.contains_key(&0));
+    assert!(app.custom_occupation.skill_slot_labels.contains_key(&1));
+    let rows: Vec<_> = app
+        .sheet_math()
+        .skill_rows
+        .into_iter()
+        .filter(|row| row.id == Skill::LanguageOther)
+        .collect();
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn json_import_reports_and_ignores_malformed_custom_allocation_keys() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    value["allocations"]["custom_occupation_points"] = serde_json::json!({
+        "-1": 10,
+        "slot4": 20,
+        "0": 30
+    });
+    value["allocations"]["custom_personal_points"] = serde_json::json!({
+        "bad": 5
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("malformed custom allocation keys should be ignored, not fatal");
+
+    assert!(loaded.allocations.custom_occupation_points.is_empty());
+    assert!(loaded.allocations.custom_personal_points.is_empty());
+    assert!(
+        report
+            .removed_unknown_skills
+            .iter()
+            .any(|entry| entry.contains("custom_occupation_points: -1")),
+        "expected malformed -1 key report, got {report:?}"
+    );
+    assert!(
+        report
+            .removed_unknown_skills
+            .iter()
+            .any(|entry| entry.contains("custom_occupation_points: slot4")),
+        "expected malformed slot4 key report, got {report:?}"
+    );
+    assert!(
+        report
+            .removed_unknown_skills
+            .iter()
+            .any(|entry| entry.contains("custom_personal_points: bad")),
+        "expected malformed bad key report, got {report:?}"
+    );
+}
+
+#[test]
 fn lowering_custom_required_skill_count_preserves_inactive_slots() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
