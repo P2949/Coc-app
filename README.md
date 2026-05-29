@@ -65,9 +65,9 @@ target\release\coc7e_investigator_creator.exe
 
 ## Save compatibility and custom skills
 
-Save files include a numeric schema version. Missing-version JSON is treated as a legacy v0 save and migrated into the current schema before parsing; future unsupported versions are rejected instead of being partially loaded. Imports still sanitize invalid data, but the UI reports when allocations or custom-skill labels had to be corrected.
+Save files include a numeric schema version. Missing-version JSON is treated as a legacy v0 save, version 1 JSON is migrated into the current version 2 schema, and future unsupported versions are rejected instead of being partially loaded. Imports still sanitize invalid data, but the UI reports when allocations, custom-skill labels, Luck evidence, or other imported fields had to be corrected.
 
-Custom occupations default to the standard eight occupation-skill slots, but the required count can be lowered for Keeper-approved custom or simplified occupations. Custom occupation skill slots may also have independent display labels such as `Language (Latin)`, `Language (Greek)`, `Pilot (Boat)`, or `Survival (Desert)` while keeping the underlying canonical rule skill for base values. Duplicate specialty slots are tracked as separate sheet rows and keep independent custom-slot allocation points.
+Custom occupations default to the standard eight occupation-skill slots, but the required count can be lowered for Keeper-approved custom or simplified occupations. Custom occupation skill slots may also have independent display labels such as `Language (Latin)`, `Language (Greek)`, `Pilot (Boat)`, or `Survival (Desert)` while keeping the underlying canonical rule skill for base values. Duplicate specialty slots are tracked as separate sheet rows and keep independent custom-slot allocation points. Temporarily lowering the custom occupation skill count preserves inactive valid slot names and clamped inactive slot allocations so they can be restored when the count is raised again.
 
 Dice rolls use the app's saved RNG seed and roll-side history as convenience roll evidence for character creation, not as cryptographic randomness. Stored characteristic, Luck, and EDU roll results remain the authoritative audit trail in the JSON save.
 

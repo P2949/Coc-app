@@ -2946,6 +2946,168 @@ fn normalized_luck_is_reported_without_resetting_luck() {
 }
 
 #[test]
+fn json_export_uses_current_v2_save_version() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+
+    assert_eq!(value["version"], serde_json::json!(2));
+    assert_eq!(app.save_file().version, INVESTIGATOR_SAVE_VERSION);
+}
+
+#[test]
+fn json_import_accepts_v1_save_as_legacy_schema() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+    value["version"] = serde_json::json!(1);
+    value
+        .as_object_mut()
+        .expect("save root should be an object")
+        .remove("rng_roll_sides");
+    value["custom_occupation"]
+        .as_object_mut()
+        .expect("custom occupation should be an object")
+        .remove("skill_slot_labels");
+    value["allocations"]
+        .as_object_mut()
+        .expect("allocations should be an object")
+        .remove("custom_occupation_points");
+    value["allocations"]
+        .as_object_mut()
+        .expect("allocations should be an object")
+        .remove("custom_personal_points");
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("v1 saves should migrate into the current schema");
+
+    assert!(report.is_clean(), "{report:?}");
+    assert_eq!(loaded.save_file().version, INVESTIGATOR_SAVE_VERSION);
+}
+
+#[test]
+fn duplicate_custom_slot_labels_are_rejected_without_deleting_skills() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+
+    let first_label = app
+        .custom_occupation
+        .skill_slot_labels
+        .get(&0)
+        .cloned()
+        .expect("first duplicate should get an auto label");
+    assert!(
+        !app.set_custom_occupation_skill_label_for_slot(1, first_label),
+        "duplicate slot labels should be rejected"
+    );
+    assert!(
+        !app.set_custom_occupation_skill_label_for_slot(1, String::new()),
+        "active duplicate labels must not be cleared"
+    );
+
+    app.sanitize_state();
+    assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
+    assert_eq!(app.custom_occupation.skills[1], "Language (Other)");
+}
+
+#[test]
+fn stale_generated_duplicate_label_is_removed_when_group_shrinks() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    assert!(app.set_custom_occupation_skill(0, "Language (Other)".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Language (Other)".to_owned()));
+    assert!(app.custom_occupation.skill_slot_labels.contains_key(&0));
+    assert!(app.custom_occupation.skill_slot_labels.contains_key(&1));
+
+    assert!(app.set_custom_occupation_skill(1, "Pilot".to_owned()));
+    app.sanitize_state();
+
+    assert_eq!(app.custom_occupation.skills[0], "Language (Other)");
+    assert_eq!(app.custom_occupation.skills[1], "Pilot");
+    assert_eq!(app.custom_occupation.skill_slot_labels.get(&0), None);
+}
+
+#[test]
+fn inactive_custom_slot_allocations_are_clamped_while_preserved() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    assert!(app.set_custom_occupation_skill(0, "Library Use".to_owned()));
+    assert!(app.set_custom_occupation_skill(1, "Spot Hidden".to_owned()));
+    assert!(app.set_custom_occupation_skill(2, "Listen".to_owned()));
+    assert!(app.set_custom_occupation_skill(3, "Stealth".to_owned()));
+    app.custom_occupation.required_skill_count = 3;
+    app.allocations.custom_occupation_points.insert(3, 999);
+    app.allocations.custom_personal_points.insert(3, 999);
+
+    let report = app.sanitize_state_with_report();
+
+    assert_eq!(app.custom_occupation.skills[3], "Stealth");
+    assert_eq!(app.allocations.custom_occupation_points.get(&3), Some(&79));
+    assert_eq!(app.allocations.custom_personal_points.get(&3), None);
+    assert!(
+        report
+            .clamped_allocations
+            .iter()
+            .any(|entry| entry.contains("custom skill slot 4")),
+        "expected inactive custom allocation clamp to be reported, got {report:?}"
+    );
+    assert!(
+        report
+            .removed_allocations
+            .iter()
+            .any(|entry| entry.contains("custom skill slot 4")),
+        "expected inactive custom personal allocation removal to be reported, got {report:?}"
+    );
+}
+
+#[test]
+fn changing_occupation_clears_custom_occupation_points() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Library Use".to_owned()));
+    app.set_occupation_allocation_for_instance(Skill::LibraryUse, Some(0), 20);
+    assert_eq!(app.allocations.custom_occupation_points.get(&0), Some(&20));
+
+    app.set_occupation("Nurse".to_owned());
+
+    assert!(app.allocations.custom_occupation_points.is_empty());
+}
+
+#[test]
 fn lowering_custom_required_skill_count_preserves_inactive_slots() {
     let mut app = test_app();
     app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());

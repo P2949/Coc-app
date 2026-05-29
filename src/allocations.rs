@@ -228,6 +228,7 @@ impl CoC7eApp {
         let before_custom_occupation = self.allocations.custom_occupation_points.clone();
         let before_custom_personal = self.allocations.custom_personal_points.clone();
         let math = self.sheet_math();
+        let final_chars = math.final_chars.clone();
         let enforce_total_budgets = self.has_all_chars();
         let mut occupation_points = HashMap::new();
         let mut personal_points = HashMap::new();
@@ -287,7 +288,19 @@ impl CoC7eApp {
                 && valid_custom_indices.contains(index)
                 && *value > 0
             {
-                custom_occupation_points.insert(*index, *value);
+                let Some(skill) = self
+                    .custom_occupation
+                    .skills
+                    .get(*index)
+                    .and_then(|skill| Skill::from_name(skill.trim()))
+                else {
+                    continue;
+                };
+                let base = get_base_skill_for(skill, &final_chars);
+                let value = (*value).clamp(0, (MAX_CREATION_VALUE - base).max(0));
+                if value > 0 {
+                    custom_occupation_points.insert(*index, value);
+                }
             }
         }
         for (index, value) in &before_custom_personal {
@@ -295,7 +308,20 @@ impl CoC7eApp {
                 && valid_custom_indices.contains(index)
                 && *value > 0
             {
-                custom_personal_points.insert(*index, *value);
+                let Some(skill) = self
+                    .custom_occupation
+                    .skills
+                    .get(*index)
+                    .and_then(|skill| Skill::from_name(skill.trim()))
+                else {
+                    continue;
+                };
+                let base = get_base_skill_for(skill, &final_chars);
+                let preserved_occ = custom_occupation_points.get(index).copied().unwrap_or(0);
+                let value = (*value).clamp(0, (MAX_CREATION_VALUE - base - preserved_occ).max(0));
+                if value > 0 {
+                    custom_personal_points.insert(*index, value);
+                }
             }
         }
 

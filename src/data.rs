@@ -10,7 +10,7 @@ use std::fmt;
 use std::ops::Index;
 
 pub(crate) const CUSTOM_OCCUPATION_ID: &str = "__custom__";
-pub(crate) const INVESTIGATOR_SAVE_VERSION: u32 = 1;
+pub(crate) const INVESTIGATOR_SAVE_VERSION: u32 = 2;
 pub(crate) const CUSTOM_OCCUPATION_MIN_SKILL_COUNT: usize = 1;
 pub(crate) const CUSTOM_OCCUPATION_SKILL_COUNT: usize = 8;
 pub(crate) const DEFAULT_RNG_SEED: u64 = 0xC0C7_E7E5_1234_5678;

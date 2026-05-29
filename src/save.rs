@@ -4,7 +4,7 @@ use super::ruleset::BACKSTORY_CATEGORIES;
 use std::collections::HashSet;
 use std::path::Path;
 
-fn migrate_v0_to_v1(value: &mut serde_json::Value) {
+fn migrate_legacy_to_current(value: &mut serde_json::Value) {
     if let Some(object) = value.as_object_mut() {
         object.insert(
             "version".to_owned(),
@@ -43,7 +43,7 @@ fn migrate_save_value(
     };
 
     match version {
-        0 => migrate_v0_to_v1(&mut value),
+        0 | 1 => migrate_legacy_to_current(&mut value),
         current if current == INVESTIGATOR_SAVE_VERSION as u64 => {}
         unsupported => {
             return Err(format!(

@@ -76,9 +76,12 @@ impl CoC7eApp {
             .collect()
     }
 
-    fn ensure_distinct_slot_labels_for_active_duplicates(&mut self, skill: Skill) {
-        let duplicate_indices: Vec<usize> = self
-            .custom_occupation
+    fn generated_duplicate_label(skill: Skill, ordinal: usize) -> String {
+        format!("{} {}", skill.name(), ordinal + 1)
+    }
+
+    fn active_slot_indices_for_skill(&self, skill: Skill) -> Vec<usize> {
+        self.custom_occupation
             .skills
             .iter()
             .take(self.custom_occupation_required_skill_count())
@@ -86,9 +89,77 @@ impl CoC7eApp {
             .filter_map(|(index, slot_skill)| {
                 (Skill::from_name(slot_skill.trim()) == Some(skill)).then_some(index)
             })
-            .collect();
+            .collect()
+    }
+
+    fn active_duplicate_label_conflict(&self, index: usize, skill: Skill, label: &str) -> bool {
+        let label = label.trim();
+        !label.is_empty()
+            && self
+                .active_slot_indices_for_skill(skill)
+                .into_iter()
+                .any(|other_index| {
+                    other_index != index
+                        && self
+                            .custom_occupation
+                            .skill_slot_labels
+                            .get(&other_index)
+                            .is_some_and(|other| other.trim() == label)
+                })
+    }
+
+    pub(crate) fn custom_occupation_slot_label_warning(
+        &self,
+        index: usize,
+    ) -> Option<&'static str> {
+        let skill = Skill::from_name(self.custom_occupation.skills.get(index)?.trim())?;
+        let duplicate_indices = self.active_slot_indices_for_skill(skill);
+        if duplicate_indices.len() < 2 {
+            return None;
+        }
+
+        let label = self
+            .custom_occupation
+            .skill_slot_labels
+            .get(&index)
+            .map(|label| label.trim())
+            .unwrap_or_default();
+        if label.is_empty() || self.active_duplicate_label_conflict(index, skill, label) {
+            Some("Duplicate custom specialties need distinct labels.")
+        } else {
+            None
+        }
+    }
+
+    fn cleanup_stale_generated_duplicate_labels_for(&mut self, skill: Skill) {
+        let indices = self.active_slot_indices_for_skill(skill);
+        if indices.len() != 1 {
+            return;
+        }
+
+        let index = indices[0];
+        let Some(label) = self
+            .custom_occupation
+            .skill_slot_labels
+            .get(&index)
+            .map(|label| label.trim().to_owned())
+        else {
+            return;
+        };
+
+        for ordinal in 0..CUSTOM_OCCUPATION_SKILL_COUNT {
+            if label == Self::generated_duplicate_label(skill, ordinal) {
+                self.custom_occupation.skill_slot_labels.remove(&index);
+                break;
+            }
+        }
+    }
+
+    fn ensure_distinct_slot_labels_for_active_duplicates(&mut self, skill: Skill) {
+        let duplicate_indices = self.active_slot_indices_for_skill(skill);
 
         if duplicate_indices.len() < 2 {
+            self.cleanup_stale_generated_duplicate_labels_for(skill);
             return;
         }
 
@@ -104,7 +175,7 @@ impl CoC7eApp {
                 continue;
             }
 
-            let mut label = format!("{} {}", skill.name(), ordinal + 1);
+            let mut label = Self::generated_duplicate_label(skill, ordinal);
             while !seen.insert(label.clone()) {
                 label.push('*');
             }
@@ -143,8 +214,9 @@ impl CoC7eApp {
             }
         }
 
-        for indices in active_slots_by_skill.values() {
+        for (skill, indices) in &active_slots_by_skill {
             if indices.len() < 2 {
+                self.cleanup_stale_generated_duplicate_labels_for(*skill);
                 continue;
             }
 
@@ -330,6 +402,7 @@ impl CoC7eApp {
         };
         self.occupation_choices.clear();
         self.allocations.occupation_points.clear();
+        self.allocations.custom_occupation_points.clear();
     }
 
     pub(crate) fn set_formula_key(&mut self, next: FormulaKey) {
@@ -379,20 +452,30 @@ impl CoC7eApp {
         next: String,
     ) -> bool {
         self.normalize_custom_occupation_skills();
-        if index >= self.custom_occupation_required_skill_count()
-            || Skill::from_name(self.custom_occupation.skills[index].trim()).is_none()
-        {
+        if index >= self.custom_occupation_required_skill_count() {
             self.custom_occupation.skill_slot_labels.remove(&index);
             return false;
         }
+        let Some(skill) = Skill::from_name(self.custom_occupation.skills[index].trim()) else {
+            self.custom_occupation.skill_slot_labels.remove(&index);
+            return false;
+        };
 
+        let duplicate_count = self.active_slot_indices_for_skill(skill).len();
         let normalized = next.trim();
         if normalized.is_empty() {
+            if duplicate_count > 1 {
+                return false;
+            }
             self.custom_occupation.skill_slot_labels.remove(&index);
             return true;
         }
 
         let normalized = normalized.chars().take(64).collect::<String>();
+        if duplicate_count > 1 && self.active_duplicate_label_conflict(index, skill, &normalized) {
+            return false;
+        }
+
         self.custom_occupation
             .skill_slot_labels
             .insert(index, normalized);
@@ -429,14 +512,18 @@ impl CoC7eApp {
             return false;
         }
         let new_skill = Skill::from_name(&normalized).expect("validated custom skill name");
-        if let Some(old_skill) = Skill::from_name(self.custom_occupation.skills[index].trim())
-            && old_skill != new_skill
-        {
+        let old_skill = Skill::from_name(self.custom_occupation.skills[index].trim());
+        if old_skill.is_some_and(|old_skill| old_skill != new_skill) {
             self.custom_occupation.skill_slot_labels.remove(&index);
             self.allocations.custom_occupation_points.remove(&index);
             self.allocations.custom_personal_points.remove(&index);
         }
         self.custom_occupation.skills[index] = normalized;
+        if let Some(old_skill) = old_skill
+            && old_skill != new_skill
+        {
+            self.cleanup_stale_generated_duplicate_labels_for(old_skill);
+        }
         self.ensure_distinct_slot_labels_for_active_duplicates(new_skill);
         self.prune_occupation_allocations();
         true

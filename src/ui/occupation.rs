@@ -348,8 +348,23 @@ impl CoC7eApp {
                                             .unwrap_or("optional display label"),
                                     ),
                                 );
+                                let mut rejected_label = false;
                                 if label != current_label {
-                                    self.set_custom_occupation_skill_label_for_slot(index, label);
+                                    rejected_label = !self
+                                        .set_custom_occupation_skill_label_for_slot(index, label);
+                                }
+                                if rejected_label {
+                                    ui.label(
+                                        RichText::new(
+                                            "Duplicate custom specialties need distinct labels.",
+                                        )
+                                        .small()
+                                        .color(AMBER),
+                                    );
+                                } else if let Some(warning) =
+                                    self.custom_occupation_slot_label_warning(index)
+                                {
+                                    ui.label(RichText::new(warning).small().color(AMBER));
                                 }
                                 let display = self.custom_skill_display_name_for_slot(index, skill);
                                 if display != skill.name() {
