@@ -1,9 +1,7 @@
 use eframe::egui::Color32;
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
-    de::{Error as DeError, MapAccess, SeqAccess, Visitor},
-    ser::SerializeMap,
+    Deserialize, Deserializer, Serialize, Serializer, de::Error as DeError, ser::SerializeMap,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -139,10 +137,6 @@ pub(crate) const CHARACTERISTIC_SAVE_KEYS: &[Characteristic; Characteristic::COU
     Characteristic::Edu,
 ];
 
-pub(crate) const CHARACTERISTIC_SAVE_FIELD_NAMES: &[&str] = &[
-    "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "values",
-];
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CharacteristicValues {
     pub(crate) values: [i32; Characteristic::COUNT],
@@ -169,101 +163,80 @@ impl Serialize for CharacteristicValues {
     }
 }
 
+fn parse_i32_import_value(value: &serde_json::Value) -> Option<i32> {
+    value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .or_else(|| value.as_str()?.trim().parse::<i32>().ok())
+}
+
+fn characteristic_values_from_ordered_import(values: &[serde_json::Value]) -> CharacteristicValues {
+    let mut out = CharacteristicValues::default();
+    for (index, key) in CHARACTERISTIC_SAVE_KEYS.iter().enumerate() {
+        if let Some(value) = values.get(index).and_then(parse_i32_import_value) {
+            out.set_char(*key, value);
+        }
+    }
+    out
+}
+
+fn parse_characteristic_values_import(
+    raw: &serde_json::Value,
+) -> Result<CharacteristicValues, String> {
+    if let Some(values) = raw.as_array() {
+        return Ok(characteristic_values_from_ordered_import(values));
+    }
+
+    let Some(object) = raw.as_object() else {
+        return Ok(CharacteristicValues::default());
+    };
+
+    if let Some(values) = object.get("values") {
+        if object.keys().any(|key| key != "values") {
+            return Err(
+                "legacy characteristic values object cannot be mixed with named characteristic fields"
+                    .to_owned(),
+            );
+        }
+        return Ok(values
+            .as_array()
+            .map(|values| characteristic_values_from_ordered_import(values))
+            .unwrap_or_default());
+    }
+
+    for key in CHARACTERISTIC_SAVE_KEYS {
+        if !object.contains_key(key.key()) {
+            return Err(format!("missing field {}", key.key()));
+        }
+    }
+
+    let mut out = CharacteristicValues::default();
+    for key in CHARACTERISTIC_SAVE_KEYS {
+        let value = object
+            .get(key.key())
+            .and_then(parse_i32_import_value)
+            .unwrap_or_default();
+        out.set_char(*key, value);
+    }
+    Ok(out)
+}
+
+fn deserialize_characteristic_values<'de, D>(
+    deserializer: D,
+) -> Result<CharacteristicValues, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    parse_characteristic_values_import(&raw).map_err(DeError::custom)
+}
+
 impl<'de> Deserialize<'de> for CharacteristicValues {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct CharacteristicValuesVisitor;
-
-        impl CharacteristicValuesVisitor {
-            fn from_ordered_values<E>(
-                values: [i32; Characteristic::COUNT],
-            ) -> Result<CharacteristicValues, E>
-            where
-                E: DeError,
-            {
-                Ok(CharacteristicValues { values })
-            }
-        }
-
-        impl<'de> Visitor<'de> for CharacteristicValuesVisitor {
-            type Value = CharacteristicValues;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a characteristic map keyed by STR/CON/SIZ/DEX/APP/INT/POW/EDU, a legacy { values: [...] } object, or a legacy ordered array")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut values = [0; Characteristic::COUNT];
-                for value in &mut values {
-                    *value = seq
-                        .next_element()?
-                        .ok_or_else(|| DeError::invalid_length(Characteristic::COUNT, &self))?;
-                }
-                Self::from_ordered_values(values)
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut out = CharacteristicValues::default();
-                let mut seen = [false; Characteristic::COUNT];
-                let mut saw_legacy_values = false;
-
-                while let Some(key) = map.next_key::<String>()? {
-                    if key == "values" {
-                        if saw_legacy_values {
-                            return Err(DeError::duplicate_field("values"));
-                        }
-                        if seen.iter().any(|value_seen| *value_seen) {
-                            return Err(DeError::custom(
-                                "legacy characteristic values object cannot be mixed with named characteristic fields",
-                            ));
-                        }
-
-                        let values = map.next_value::<[i32; Characteristic::COUNT]>()?;
-                        out = Self::from_ordered_values(values)?;
-                        saw_legacy_values = true;
-                        continue;
-                    }
-
-                    if saw_legacy_values {
-                        return Err(DeError::custom(
-                            "legacy characteristic values object cannot be mixed with named characteristic fields",
-                        ));
-                    }
-
-                    let characteristic =
-                        Characteristic::from_key(key.as_str()).ok_or_else(|| {
-                            DeError::unknown_field(key.as_str(), CHARACTERISTIC_SAVE_FIELD_NAMES)
-                        })?;
-                    let index = characteristic.index();
-                    if seen[index] {
-                        return Err(DeError::duplicate_field(characteristic.key()));
-                    }
-                    seen[index] = true;
-                    let value = map.next_value::<i32>()?;
-                    out.set_char(characteristic, value);
-                }
-
-                if !saw_legacy_values {
-                    for key in CHARACTERISTIC_SAVE_KEYS {
-                        if !seen[key.index()] {
-                            return Err(DeError::missing_field(key.key()));
-                        }
-                    }
-                }
-
-                Ok(out)
-            }
-        }
-
-        deserializer.deserialize_any(CharacteristicValuesVisitor)
+        deserialize_characteristic_values(deserializer)
     }
 }
 
@@ -687,6 +660,38 @@ impl Default for Concept {
     }
 }
 
+fn imported_string_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> String {
+    object
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn deserialize_concept<'de, D>(deserializer: D) -> Result<Concept, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(Concept::default());
+    };
+
+    Ok(Concept {
+        name: imported_string_field(object, "name"),
+        age: object
+            .get("age")
+            .and_then(parse_i32_import_value)
+            .unwrap_or_else(|| Concept::default().age),
+        pronouns: imported_string_field(object, "pronouns"),
+        residence: imported_string_field(object, "residence"),
+        birthplace: imported_string_field(object, "birthplace"),
+    })
+}
+
 fn default_custom_occupation_required_skill_count() -> usize {
     CUSTOM_OCCUPATION_SKILL_COUNT
 }
@@ -715,13 +720,6 @@ fn invalid_occupation_choice_index() -> usize {
     usize::MAX
 }
 
-fn parse_i32_import_value(value: &serde_json::Value) -> Option<i32> {
-    value
-        .as_i64()
-        .and_then(|value| i32::try_from(value).ok())
-        .or_else(|| value.as_str()?.trim().parse::<i32>().ok())
-}
-
 fn parse_usize_import_value(value: &serde_json::Value) -> Option<usize> {
     if let Some(value) = value.as_i64() {
         return usize::try_from(value).ok();
@@ -729,6 +727,34 @@ fn parse_usize_import_value(value: &serde_json::Value) -> Option<usize> {
 
     let parsed = value.as_str()?.trim().parse::<i64>().ok()?;
     usize::try_from(parsed).ok()
+}
+
+fn parse_u64_import_value(value: &serde_json::Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+}
+
+fn parse_bool_import_value(value: &serde_json::Value) -> Option<bool> {
+    value
+        .as_bool()
+        .or_else(|| value.as_str()?.trim().parse::<bool>().ok())
+}
+
+fn deserialize_u64_or_zero<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_u64_import_value(&raw).unwrap_or_default())
+}
+
+fn deserialize_i32_or_zero<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(parse_i32_import_value(&raw).unwrap_or_default())
 }
 
 fn parse_custom_required_skill_count_value(value: &serde_json::Value) -> Option<usize> {
@@ -1000,6 +1026,60 @@ pub(crate) enum CharMethod {
     Mixed,
 }
 
+fn default_char_method() -> CharMethod {
+    CharMethod::Roll
+}
+
+fn deserialize_char_method<'de, D>(deserializer: D) -> Result<CharMethod, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(raw).unwrap_or_else(|_| default_char_method()))
+}
+
+fn parse_edu_check_roll(value: &serde_json::Value) -> Option<EduCheckRoll> {
+    let object = value.as_object()?;
+    Some(EduCheckRoll {
+        d100: object
+            .get("d100")
+            .and_then(parse_i32_import_value)
+            .unwrap_or_default(),
+        improved: object
+            .get("improved")
+            .and_then(parse_bool_import_value)
+            .unwrap_or_default(),
+        gain: object
+            .get("gain")
+            .and_then(parse_i32_import_value)
+            .unwrap_or_default(),
+        resulting_edu: object
+            .get("resulting_edu")
+            .and_then(parse_i32_import_value)
+            .unwrap_or_default(),
+    })
+}
+
+fn deserialize_edu_check_rolls<'de, D>(deserializer: D) -> Result<Vec<EduCheckRoll>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(items) = raw.as_array() else {
+        return Ok(Vec::new());
+    };
+
+    Ok(items.iter().filter_map(parse_edu_check_roll).collect())
+}
+
+fn deserialize_formula_key_or_default<'de, D>(deserializer: D) -> Result<FormulaKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(raw).unwrap_or_else(|_| default_custom_occupation_formula_key()))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ChoiceKey {
     pub(crate) id: String,
@@ -1023,6 +1103,46 @@ impl ChoiceKey {
 pub(crate) struct LuckState {
     pub(crate) value: Option<i32>,
     pub(crate) rolls: Vec<DiceResult>,
+}
+
+fn parse_dice_result(value: &serde_json::Value) -> Option<DiceResult> {
+    serde_json::from_value(value.clone()).ok()
+}
+
+fn deserialize_dice_result_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, DiceResult>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(BTreeMap::new());
+    };
+
+    Ok(object
+        .iter()
+        .filter_map(|(key, value)| parse_dice_result(value).map(|result| (key.clone(), result)))
+        .collect())
+}
+
+fn deserialize_luck_state<'de, D>(deserializer: D) -> Result<LuckState, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(LuckState::default());
+    };
+
+    let value = object.get("value").and_then(parse_i32_import_value);
+    let rolls = object
+        .get("rolls")
+        .and_then(serde_json::Value::as_array)
+        .map(|rolls| rolls.iter().filter_map(parse_dice_result).collect())
+        .unwrap_or_default();
+
+    Ok(LuckState { value, rolls })
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1298,6 +1418,32 @@ impl<'de> Deserialize<'de> for AllocationState {
     }
 }
 
+fn deserialize_allocation_state<'de, D>(deserializer: D) -> Result<AllocationState, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    if !raw.is_object() {
+        return Ok(AllocationState::default());
+    }
+    Ok(serde_json::from_value(raw).unwrap_or_default())
+}
+
+fn deserialize_string_map<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    let Some(object) = raw.as_object() else {
+        return Ok(BTreeMap::new());
+    };
+
+    Ok(object
+        .iter()
+        .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_owned())))
+        .collect())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct SavedOccupationChoice {
     #[serde(default, deserialize_with = "deserialize_string_or_empty")]
@@ -1351,25 +1497,43 @@ where
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct InvestigatorSaveFile {
     pub(crate) version: u32,
+    #[serde(default, deserialize_with = "deserialize_concept")]
     pub(crate) concept: Concept,
+    #[serde(
+        default = "default_char_method",
+        deserialize_with = "deserialize_char_method"
+    )]
     pub(crate) char_method: CharMethod,
+    #[serde(default, deserialize_with = "deserialize_characteristic_values")]
     pub(crate) chars: CharacteristicValues,
+    #[serde(default, deserialize_with = "deserialize_dice_result_map")]
     pub(crate) char_rolls: BTreeMap<String, DiceResult>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_u64_or_zero")]
     pub(crate) rng_seed: u64,
     #[serde(default, deserialize_with = "deserialize_rng_roll_sides")]
     pub(crate) rng_roll_sides: Vec<u32>,
+    #[serde(default, deserialize_with = "deserialize_luck_state")]
     pub(crate) luck_state: LuckState,
+    #[serde(default, deserialize_with = "deserialize_characteristic_values")]
     pub(crate) age_deductions: CharacteristicValues,
+    #[serde(default, deserialize_with = "deserialize_i32_or_zero")]
     pub(crate) edu_bonus: i32,
+    #[serde(default, deserialize_with = "deserialize_edu_check_rolls")]
     pub(crate) edu_check_rolls: Vec<EduCheckRoll>,
+    #[serde(default, deserialize_with = "deserialize_string_or_empty")]
     pub(crate) occupation_id: String,
+    #[serde(
+        default = "default_custom_occupation_formula_key",
+        deserialize_with = "deserialize_formula_key_or_default"
+    )]
     pub(crate) formula_key: FormulaKey,
     #[serde(default, deserialize_with = "deserialize_occupation_choices")]
     pub(crate) occupation_choices: Vec<SavedOccupationChoice>,
     #[serde(default, deserialize_with = "deserialize_custom_occupation")]
     pub(crate) custom_occupation: CustomOccupation,
+    #[serde(default, deserialize_with = "deserialize_allocation_state")]
     pub(crate) allocations: AllocationState,
+    #[serde(default, deserialize_with = "deserialize_string_map")]
     pub(crate) backstory: BTreeMap<String, String>,
 }
 

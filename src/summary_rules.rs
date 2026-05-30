@@ -91,9 +91,9 @@ impl CoC7eApp {
                 ));
             }
         }
-        if used_occ != math.occupation_budget {
+        if has_occupation && used_occ != math.occupation_budget {
             let occupation_capacity = Self::occupation_budget_capacity_from(math);
-            if has_occupation && math.occupation_budget > occupation_capacity {
+            if math.occupation_budget > occupation_capacity {
                 blockers.push(format!(
                     "occupation points impossible: budget {} exceeds current skill cap \
                     {occupation_capacity}; add custom skills or lower the occupation formula",

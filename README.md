@@ -128,7 +128,7 @@ Releases are created from Git tags.
    git push origin v0.1.0
    ```
 
-6. The GitHub Actions release workflow will build raw Linux, Windows, and macOS archives, build installer packages, generate `SHA256SUMS.txt`, generate artifact attestations, and attach all artifacts to a GitHub Release.
+6. The GitHub Actions release workflow will build raw Linux, Windows, and macOS archives, build installer packages, generate `SHA256SUMS.txt`, generate artifact attestations for the artifacts listed in that checksum file, and attach all artifacts to a GitHub Release.
 
 ## Downloading release builds
 
@@ -150,7 +150,7 @@ Verify downloaded artifact checksums with:
 sha256sum -c SHA256SUMS.txt
 ```
 
-Verify GitHub artifact attestations with:
+The release workflow creates GitHub artifact attestations from `SHA256SUMS.txt`, so each listed release asset is an attestation subject. After verifying checksums, verify a downloaded artifact's provenance with:
 
 ```bash
 gh attestation verify <downloaded-artifact> --repo P2949/Coc-app

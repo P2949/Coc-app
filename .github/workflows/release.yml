@@ -346,7 +346,8 @@ jobs:
 
           cat SHA256SUMS.txt
 
-      - name: Generate artifact attestations
+      - name: Generate artifact attestations from checksums
+        # The checksum file is the subject list; every listed asset is attested.
         uses: actions/attest@v4
         with:
           subject-checksums: dist/release-assets/SHA256SUMS.txt

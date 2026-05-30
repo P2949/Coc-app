@@ -32,6 +32,70 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
     (replay_sides, normalized)
 }
 
+fn path_uses_unexpanded_home(path: &Path) -> bool {
+    path.as_os_str().to_string_lossy().starts_with('~')
+}
+
+fn validate_json_path_for_save(path: &Path) -> Result<(), String> {
+    if path.as_os_str().is_empty() {
+        return Err("enter a save path before saving".to_owned());
+    }
+    if path_uses_unexpanded_home(path) {
+        return Err(
+            "~ is not expanded in save paths; use an absolute path or a relative path without ~"
+                .to_owned(),
+        );
+    }
+    if path.is_dir() {
+        return Err(format!(
+            "save path points to a directory; choose a JSON file path: {}",
+            path.display()
+        ));
+    }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        return Err(format!(
+            "save directory does not exist: {}",
+            parent.display()
+        ));
+    }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+        && parent.exists()
+        && !parent.is_dir()
+    {
+        return Err(format!(
+            "save parent path is not a directory: {}",
+            parent.display()
+        ));
+    }
+    Ok(())
+}
+
+fn validate_json_path_for_load(path: &Path) -> Result<(), String> {
+    if path.as_os_str().is_empty() {
+        return Err("enter a save path before loading".to_owned());
+    }
+    if path_uses_unexpanded_home(path) {
+        return Err(
+            "~ is not expanded in load paths; use an absolute path or a relative path without ~"
+                .to_owned(),
+        );
+    }
+    if !path.exists() {
+        return Err(format!("save file does not exist: {}", path.display()));
+    }
+    if path.is_dir() {
+        return Err(format!(
+            "load path points to a directory; choose a JSON file path: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 fn import_value_is_i32(value: &serde_json::Value) -> bool {
     value
         .as_i64()
@@ -54,6 +118,182 @@ fn import_value_is_non_negative_usize(value: &serde_json::Value) -> bool {
     })
 }
 
+fn import_value_is_u64(value: &serde_json::Value) -> bool {
+    value.as_u64().is_some()
+        || value
+            .as_str()
+            .is_some_and(|value| value.trim().parse::<u64>().is_ok())
+}
+
+fn import_value_is_bool(value: &serde_json::Value) -> bool {
+    value.as_bool().is_some()
+        || value
+            .as_str()
+            .is_some_and(|value| value.trim().parse::<bool>().is_ok())
+}
+
+fn import_value_is_positive_u32(value: &serde_json::Value) -> bool {
+    value
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+        .is_some_and(|value| value > 0)
+}
+
+fn dice_result_is_valid(value: &serde_json::Value) -> bool {
+    serde_json::from_value::<DiceResult>(value.clone()).is_ok()
+}
+
+fn report_invalid_string_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    prefix: &str,
+    field: &str,
+    unknown: &mut Vec<String>,
+) {
+    if let Some(raw) = object.get(field)
+        && !raw.is_string()
+    {
+        unknown.push(format!("{prefix}.{field}: expected string"));
+    }
+}
+
+fn report_invalid_characteristic_values(
+    field: &str,
+    raw: &serde_json::Value,
+    unknown: &mut Vec<String>,
+) {
+    if let Some(values) = raw.as_array() {
+        for (index, value) in values.iter().take(Characteristic::COUNT).enumerate() {
+            if !import_value_is_i32(value) {
+                unknown.push(format!("{field}[{index}]: expected integer"));
+            }
+        }
+        return;
+    }
+
+    let Some(object) = raw.as_object() else {
+        if !raw.is_null() {
+            unknown.push(format!("{field}: expected characteristic object or array"));
+        }
+        return;
+    };
+
+    if let Some(values) = object.get("values") {
+        if object.keys().any(|key| key != "values") {
+            unknown.push(format!(
+                "{field}: legacy values object cannot be mixed with named fields"
+            ));
+        }
+        if let Some(values) = values.as_array() {
+            for (index, value) in values.iter().take(Characteristic::COUNT).enumerate() {
+                if !import_value_is_i32(value) {
+                    unknown.push(format!("{field}.values[{index}]: expected integer"));
+                }
+            }
+        } else if !values.is_null() {
+            unknown.push(format!("{field}.values: expected array"));
+        }
+        return;
+    }
+
+    for (key, value) in object {
+        if Characteristic::from_key(key).is_none() {
+            unknown.push(format!("{field}: unknown characteristic {key}"));
+        } else if !import_value_is_i32(value) {
+            unknown.push(format!("{field}.{key}: expected integer"));
+        }
+    }
+}
+
+fn report_invalid_dice_result_map(field: &str, raw: &serde_json::Value, unknown: &mut Vec<String>) {
+    let Some(object) = raw.as_object() else {
+        if !raw.is_null() {
+            unknown.push(format!("{field}: expected object"));
+        }
+        return;
+    };
+
+    for (key, value) in object {
+        if !dice_result_is_valid(value) {
+            unknown.push(format!("{field}[{key}]: malformed roll evidence"));
+        }
+    }
+}
+
+fn report_invalid_luck_state(raw: &serde_json::Value, unknown: &mut Vec<String>) {
+    let Some(object) = raw.as_object() else {
+        if !raw.is_null() {
+            unknown.push("luck_state: expected object".to_owned());
+        }
+        return;
+    };
+
+    if let Some(value) = object.get("value")
+        && !value.is_null()
+        && !import_value_is_i32(value)
+    {
+        unknown.push("luck_state.value: expected integer or null".to_owned());
+    }
+
+    if let Some(rolls) = object.get("rolls") {
+        if let Some(rolls) = rolls.as_array() {
+            for (index, roll) in rolls.iter().enumerate() {
+                if !dice_result_is_valid(roll) {
+                    unknown.push(format!(
+                        "luck_state.rolls[{index}]: malformed roll evidence"
+                    ));
+                }
+            }
+        } else if !rolls.is_null() {
+            unknown.push("luck_state.rolls: expected array".to_owned());
+        }
+    }
+}
+
+fn report_invalid_edu_check_rolls(raw: &serde_json::Value, unknown: &mut Vec<String>) {
+    let Some(rolls) = raw.as_array() else {
+        if !raw.is_null() {
+            unknown.push("edu_check_rolls: expected array".to_owned());
+        }
+        return;
+    };
+
+    for (index, roll) in rolls.iter().enumerate() {
+        let Some(roll) = roll.as_object() else {
+            unknown.push(format!("edu_check_rolls[{index}]: expected object"));
+            continue;
+        };
+        for field in ["d100", "gain", "resulting_edu"] {
+            if let Some(raw) = roll.get(field)
+                && !import_value_is_i32(raw)
+            {
+                unknown.push(format!(
+                    "edu_check_rolls[{index}].{field}: expected integer"
+                ));
+            }
+        }
+        if let Some(raw) = roll.get("improved")
+            && !import_value_is_bool(raw)
+        {
+            unknown.push(format!("edu_check_rolls[{index}].improved: expected bool"));
+        }
+    }
+}
+
+fn report_invalid_string_map(field: &str, raw: &serde_json::Value, unknown: &mut Vec<String>) {
+    let Some(object) = raw.as_object() else {
+        if !raw.is_null() {
+            unknown.push(format!("{field}: expected object"));
+        }
+        return;
+    };
+
+    for (key, value) in object {
+        if !value.is_string() {
+            unknown.push(format!("{field}[{key}]: expected string"));
+        }
+    }
+}
+
 fn allocation_value_is_i32(value: &serde_json::Value) -> bool {
     value
         .as_i64()
@@ -63,7 +303,82 @@ fn allocation_value_is_i32(value: &serde_json::Value) -> bool {
 fn invalid_import_entries(value: &serde_json::Value) -> Vec<String> {
     let mut unknown = Vec::new();
 
+    if let Some(raw_concept) = value.get("concept") {
+        if let Some(concept) = raw_concept.as_object() {
+            for field in ["name", "pronouns", "residence", "birthplace"] {
+                report_invalid_string_field(concept, "concept", field, &mut unknown);
+            }
+            if let Some(raw) = concept.get("age")
+                && !import_value_is_i32(raw)
+            {
+                unknown.push("concept.age: expected integer".to_owned());
+            }
+        } else if !raw_concept.is_null() {
+            unknown.push("concept: expected object".to_owned());
+        }
+    }
+
+    if let Some(raw) = value.get("char_method")
+        && serde_json::from_value::<CharMethod>(raw.clone()).is_err()
+    {
+        unknown.push("char_method: unknown method".to_owned());
+    }
+    if let Some(raw) = value.get("chars") {
+        report_invalid_characteristic_values("chars", raw, &mut unknown);
+    }
+    if let Some(raw) = value.get("char_rolls") {
+        report_invalid_dice_result_map("char_rolls", raw, &mut unknown);
+    }
+    if let Some(raw) = value.get("rng_seed")
+        && !import_value_is_u64(raw)
+    {
+        unknown.push("rng_seed: expected non-negative integer".to_owned());
+    }
+    if let Some(raw) = value.get("rng_roll_sides") {
+        if let Some(sides) = raw.as_array() {
+            for (index, side) in sides.iter().enumerate() {
+                if !import_value_is_positive_u32(side) {
+                    unknown.push(format!(
+                        "rng_roll_sides[{index}]: expected positive integer"
+                    ));
+                }
+            }
+        } else if !raw.is_null() {
+            unknown.push("rng_roll_sides: expected array".to_owned());
+        }
+    }
+    if let Some(raw) = value.get("luck_state") {
+        report_invalid_luck_state(raw, &mut unknown);
+    }
+    if let Some(raw) = value.get("age_deductions") {
+        report_invalid_characteristic_values("age_deductions", raw, &mut unknown);
+    }
+    if let Some(raw) = value.get("edu_bonus")
+        && !import_value_is_i32(raw)
+    {
+        unknown.push("edu_bonus: expected integer".to_owned());
+    }
+    if let Some(raw) = value.get("edu_check_rolls") {
+        report_invalid_edu_check_rolls(raw, &mut unknown);
+    }
+    if let Some(raw) = value.get("occupation_id")
+        && !raw.is_string()
+    {
+        unknown.push("occupation_id: expected string".to_owned());
+    }
+    if let Some(raw) = value.get("formula_key")
+        && serde_json::from_value::<FormulaKey>(raw.clone()).is_err()
+    {
+        unknown.push("formula_key: unknown formula".to_owned());
+    }
+    if let Some(raw) = value.get("backstory") {
+        report_invalid_string_map("backstory", raw, &mut unknown);
+    }
+
     if let Some(allocations) = value.get("allocations") {
+        if !allocations.is_object() && !allocations.is_null() {
+            unknown.push("allocations: expected object".to_owned());
+        }
         for field in ["occupation_points", "personal_points"] {
             let Some(raw_points) = allocations.get(field) else {
                 continue;
@@ -289,9 +604,7 @@ impl CoC7eApp {
     }
 
     pub(crate) fn save_json_to_path(&self, path: &Path) -> Result<(), String> {
-        if path.as_os_str().is_empty() {
-            return Err("enter a save path before saving".to_owned());
-        }
+        validate_json_path_for_save(path)?;
         let json = self
             .export_json_save()
             .map_err(|error| format!("could not build JSON save: {error}"))?;
@@ -300,9 +613,7 @@ impl CoC7eApp {
     }
 
     pub(crate) fn load_json_from_path(&mut self, path: &Path) -> Result<SanitizeReport, String> {
-        if path.as_os_str().is_empty() {
-            return Err("enter a save path before loading".to_owned());
-        }
+        validate_json_path_for_load(path)?;
         let input = std::fs::read_to_string(path).map_err(|error| {
             format!("could not read JSON save from {}: {error}", path.display())
         })?;

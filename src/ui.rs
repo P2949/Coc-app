@@ -210,7 +210,7 @@ impl CoC7eApp {
                         ui.add_sized(
                             [520.0, 26.0],
                             egui::TextEdit::singleline(&mut self.save_load_path)
-                                .hint_text("/path/to/investigator.json"),
+                                .hint_text("/path/to/investigator.json (~/ is not expanded)"),
                         );
                         let path = PathBuf::from(self.save_load_path.trim());
                         let path_present = !self.save_load_path.trim().is_empty();

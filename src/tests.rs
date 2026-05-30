@@ -3964,3 +3964,154 @@ fn json_import_tolerates_malformed_custom_occupation_and_choice_field_types() {
         );
     }
 }
+
+#[test]
+fn json_import_tolerates_repairable_top_level_field_types() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+
+    value["concept"]["name"] = serde_json::json!(123);
+    value["concept"]["age"] = serde_json::json!("40");
+    value["char_method"] = serde_json::json!("not-a-method");
+    value["chars"]["STR"] = serde_json::json!("52");
+    value["chars"]["CON"] = serde_json::json!(false);
+    value["age_deductions"]["STR"] = serde_json::json!("5");
+    value["char_rolls"]["STR"] = serde_json::json!({
+        "rolls": [1, 1, false],
+        "plus_six": false,
+        "value": 15,
+        "kept": null
+    });
+    value["rng_seed"] = serde_json::json!("12345");
+    value["rng_roll_sides"] = serde_json::json!([6, "6", 0, -1, 10]);
+    value["luck_state"] = serde_json::json!({
+        "value": "15",
+        "rolls": [false]
+    });
+    value["edu_bonus"] = serde_json::json!("999");
+    value["edu_check_rolls"] = serde_json::json!([
+        {
+            "d100": "100",
+            "improved": "true",
+            "gain": "7",
+            "resulting_edu": "99"
+        },
+        false
+    ]);
+    value["occupation_id"] = serde_json::json!(123);
+    value["formula_key"] = serde_json::json!("not-a-formula");
+    value["allocations"] = serde_json::json!(false);
+    value["backstory"]["Traits"] = serde_json::json!(123);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("repairable top-level field type errors should not be fatal");
+
+    assert_eq!(loaded.concept.name, "");
+    assert_eq!(loaded.concept.age, 40);
+    assert_eq!(loaded.char_method, CharMethod::Roll);
+    assert_eq!(loaded.chars.get_char(Characteristic::Str), 50);
+    assert_eq!(loaded.chars.get_char(Characteristic::Con), 0);
+    assert!(loaded.char_rolls.is_empty());
+    assert_eq!(loaded.rng_seed, 12345);
+    assert_eq!(loaded.rng_roll_sides, vec![6, 10]);
+    assert_eq!(loaded.luck_state.value, None);
+    assert!(loaded.luck_state.rolls.is_empty());
+    assert_eq!(loaded.edu_bonus, 0);
+    assert!(loaded.edu_check_rolls.is_empty());
+    assert_eq!(loaded.occupation_id, "");
+    assert_eq!(loaded.formula_key, FormulaKey::Edu4);
+    assert!(loaded.allocations.occupation_points.is_empty());
+    assert!(!loaded.backstory.contains_key("Traits"));
+
+    for expected in [
+        "concept.name: expected string",
+        "char_method: unknown method",
+        "chars.CON: expected integer",
+        "char_rolls[STR]: malformed roll evidence",
+        "rng_roll_sides[1]: expected positive integer",
+        "rng_roll_sides[2]: expected positive integer",
+        "rng_roll_sides[3]: expected positive integer",
+        "luck_state.rolls[0]: malformed roll evidence",
+        "edu_check_rolls[1]: expected object",
+        "occupation_id: expected string",
+        "formula_key: unknown formula",
+        "allocations: expected object",
+        "backstory[Traits]: expected string",
+    ] {
+        assert!(
+            report
+                .removed_unknown_import_entries
+                .iter()
+                .any(|entry| entry.contains(expected)),
+            "expected {expected:?} report, got {report:?}"
+        );
+    }
+}
+
+#[test]
+fn summary_missing_occupation_does_not_report_occupation_points() {
+    let mut app = test_app();
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 50),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+
+    let math = app.sheet_math();
+    let blockers = app.summary_blockers_for(&math);
+
+    assert!(
+        blockers
+            .iter()
+            .any(|blocker| blocker == "occupation missing")
+    );
+    assert!(
+        !blockers
+            .iter()
+            .any(|blocker| blocker.starts_with("occupation points")),
+        "occupation point blocker should wait for an occupation, got {blockers:?}"
+    );
+}
+
+#[test]
+fn json_file_helpers_reject_unexpanded_home_and_bad_paths() {
+    let app = test_app();
+    let home_error = app
+        .save_json_to_path(std::path::Path::new("~/investigator.json"))
+        .expect_err("unexpanded home paths should be rejected explicitly");
+    assert!(home_error.contains("~ is not expanded"));
+
+    let mut missing_parent = std::env::temp_dir();
+    missing_parent.push(format!("coc7e_missing_parent_{}_save", std::process::id()));
+    let _ = std::fs::remove_dir_all(&missing_parent);
+    let mut missing_parent_file = missing_parent.clone();
+    missing_parent_file.push("investigator.json");
+    let missing_parent_error = app
+        .save_json_to_path(&missing_parent_file)
+        .expect_err("saves should explain missing parent directories");
+    assert!(missing_parent_error.contains("save directory does not exist"));
+
+    let mut missing_file = std::env::temp_dir();
+    missing_file.push(format!(
+        "coc7e_missing_file_{}_load.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&missing_file);
+    let mut loaded = test_app();
+    let missing_file_error = loaded
+        .load_json_from_path(&missing_file)
+        .expect_err("loads should explain missing files before reading");
+    assert!(missing_file_error.contains("save file does not exist"));
+}
