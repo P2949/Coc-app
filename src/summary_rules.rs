@@ -31,6 +31,27 @@ impl CoC7eApp {
         get_base_skill_for(Skill::CreditRating, final_chars) + occupation_add
     }
 
+    pub(crate) fn summary_generation_method_check(&self) -> (CheckState, String) {
+        match self.char_method {
+            CharMethod::PointBuy => {
+                let point_spent = self.point_buy_spent();
+                (
+                    if point_spent == POINT_BUY_BUDGET {
+                        CheckState::Pass
+                    } else {
+                        CheckState::Fail
+                    },
+                    format!("Point budget {point_spent}/{POINT_BUY_BUDGET}"),
+                )
+            }
+            CharMethod::Roll => (CheckState::Pass, "Generation method Roll".to_owned()),
+            CharMethod::QuickArray => {
+                (CheckState::Pass, "Generation method Quick Array".to_owned())
+            }
+            CharMethod::Mixed => (CheckState::Warn, "Generation method Mixed".to_owned()),
+        }
+    }
+
     pub(crate) fn summary_blockers_for(&self, math: &SheetMath) -> Vec<String> {
         let mut blockers = Vec::new();
         let bracket = self.age_bracket();

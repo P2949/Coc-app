@@ -52,7 +52,6 @@ impl CoC7eApp {
         let final_chars = &math.final_chars;
         let derived = &math.derived;
         let skill_rows = &math.skill_rows;
-        let point_spent = self.point_buy_spent();
         let physical_total = self.physical_deduction_total();
         let bracket = self.age_bracket();
         let occ_budget = math.occupation_budget;
@@ -161,17 +160,8 @@ impl CoC7eApp {
                         )
                     },
                 );
-                rule_check(
-                    ui,
-                    if self.char_method != CharMethod::PointBuy {
-                        CheckState::Warn
-                    } else if point_spent == POINT_BUY_BUDGET {
-                        CheckState::Pass
-                    } else {
-                        CheckState::Fail
-                    },
-                    format!("Point budget {point_spent}/{POINT_BUY_BUDGET}"),
-                );
+                let (generation_state, generation_label) = self.summary_generation_method_check();
+                rule_check(ui, generation_state, generation_label);
                 rule_check(
                     ui,
                     if self.luck_state.value.is_some() {

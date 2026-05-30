@@ -1875,6 +1875,64 @@ fn occupation_validation_rejects_cross_choice_impossible_unique_picks() {
 }
 
 #[test]
+fn summary_generation_method_check_is_method_aware() {
+    let mut app = test_app();
+
+    assert_eq!(
+        app.summary_generation_method_check(),
+        (CheckState::Pass, "Generation method Roll".to_owned())
+    );
+
+    app.apply_characteristic_preset(
+        CharMethod::PointBuy,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 50),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 70),
+        ],
+    );
+    assert_eq!(
+        app.summary_generation_method_check(),
+        (CheckState::Pass, "Point budget 460/460".to_owned())
+    );
+
+    app.chars.set_char(Characteristic::Str, 55);
+    assert_eq!(
+        app.summary_generation_method_check(),
+        (CheckState::Fail, "Point budget 465/460".to_owned())
+    );
+
+    app.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 40),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    assert_eq!(
+        app.summary_generation_method_check(),
+        (CheckState::Pass, "Generation method Quick Array".to_owned())
+    );
+
+    app.char_method = CharMethod::Mixed;
+    assert_eq!(
+        app.summary_generation_method_check(),
+        (CheckState::Warn, "Generation method Mixed".to_owned())
+    );
+}
+
+#[test]
 fn summary_blockers_prevent_copying_incomplete_sheet() {
     let mut app = test_app();
     app.apply_characteristic_preset(
