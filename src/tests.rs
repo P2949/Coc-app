@@ -2454,6 +2454,37 @@ fn json_import_normalizes_roll_method_when_roll_evidence_is_removed() {
 }
 
 #[test]
+fn json_import_normalizes_roll_method_when_roll_evidence_is_partial() {
+    let mut source = test_app();
+    source.roll_all_characteristics();
+    let mut save = source.save_file();
+    let str_roll = save
+        .char_rolls
+        .get("STR")
+        .cloned()
+        .expect("rolled save should include STR evidence");
+    save.char_rolls.clear();
+    save.char_rolls.insert("STR".to_owned(), str_roll);
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&json)
+        .expect("save with partial roll evidence should import");
+
+    assert_eq!(loaded.char_method, CharMethod::Mixed);
+    assert_eq!(loaded.char_rolls.len(), 1);
+    assert!(loaded.char_rolls.contains_key("STR"));
+    assert!(
+        report
+            .normalized_import_fields
+            .iter()
+            .any(|entry| entry.contains("char_method: Roll → Mixed")),
+        "expected char_method normalization report, got {report:?}"
+    );
+}
+
+#[test]
 fn json_import_recomputes_edu_bonus_from_imported_rolls() {
     let source = test_app();
     let mut save = source.save_file();
@@ -3553,6 +3584,41 @@ fn sanitize_custom_occupation_removes_visible_label_collisions() {
 
     assert!(!app.custom_occupation.skill_slot_labels.contains_key(&0));
     assert!(!app.custom_occupation.skill_slot_labels.contains_key(&1));
+    let row_names = app
+        .sheet_math()
+        .skill_rows
+        .into_iter()
+        .map(|row| row.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Library Use")
+            .count(),
+        1
+    );
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Pilot")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn sanitize_custom_occupation_normalizes_legacy_label_keys_before_collision_cleanup() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(1);
+    assert!(app.set_custom_occupation_skill(0, "Pilot".to_owned()));
+    app.custom_occupation
+        .skill_labels
+        .insert(" Pilot ".to_owned(), "Library Use".to_owned());
+
+    app.sanitize_state();
+
+    assert!(app.custom_occupation.skill_labels.is_empty());
     let row_names = app
         .sheet_math()
         .skill_rows

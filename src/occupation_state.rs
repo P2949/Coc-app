@@ -184,6 +184,39 @@ impl CoC7eApp {
         }
     }
 
+    fn normalize_custom_occupation_skill_labels(&mut self) {
+        let all_valid_skills: HashSet<Skill> = self
+            .custom_occupation
+            .skills
+            .iter()
+            .filter_map(|skill| Skill::from_name(skill.trim()))
+            .collect();
+        self.custom_occupation
+            .skill_labels
+            .retain(|skill_name, label| {
+                let Some(skill) = Skill::from_name(skill_name.trim()) else {
+                    return false;
+                };
+                all_valid_skills.contains(&skill)
+                    && !Self::normalized_custom_slot_label(label).is_empty()
+            });
+        let normalized_labels: Vec<(String, String)> = self
+            .custom_occupation
+            .skill_labels
+            .iter()
+            .map(|(skill, label)| {
+                (
+                    skill.trim().to_owned(),
+                    Self::normalized_custom_slot_label(label),
+                )
+            })
+            .collect();
+        self.custom_occupation.skill_labels.clear();
+        for (skill, label) in normalized_labels {
+            self.custom_occupation.skill_labels.insert(skill, label);
+        }
+    }
+
     fn remove_visible_custom_slot_label_conflicts(&mut self) {
         enum ConflictingLabel {
             Slot(usize),
@@ -310,6 +343,7 @@ impl CoC7eApp {
         }
 
         self.normalize_custom_occupation_slot_labels();
+        self.normalize_custom_occupation_skill_labels();
 
         let required_count = self.custom_occupation_required_skill_count();
         let mut active_slots_by_skill: HashMap<Skill, Vec<usize>> = HashMap::new();
@@ -331,36 +365,6 @@ impl CoC7eApp {
         self.remove_visible_custom_slot_label_conflicts();
         for skill in active_slots_by_skill.keys().copied().collect::<Vec<_>>() {
             self.ensure_distinct_slot_labels_for_active_duplicates(skill);
-        }
-
-        let all_valid_skills: HashSet<Skill> = self
-            .custom_occupation
-            .skills
-            .iter()
-            .filter_map(|skill| Skill::from_name(skill.trim()))
-            .collect();
-        self.custom_occupation
-            .skill_labels
-            .retain(|skill_name, label| {
-                let Some(skill) = Skill::from_name(skill_name.trim()) else {
-                    return false;
-                };
-                all_valid_skills.contains(&skill) && !label.trim().is_empty()
-            });
-        let normalized_labels: Vec<(String, String)> = self
-            .custom_occupation
-            .skill_labels
-            .iter()
-            .map(|(skill, label)| {
-                (
-                    skill.trim().to_owned(),
-                    Self::normalized_custom_slot_label(label),
-                )
-            })
-            .collect();
-        self.custom_occupation.skill_labels.clear();
-        for (skill, label) in normalized_labels {
-            self.custom_occupation.skill_labels.insert(skill, label);
         }
     }
 

@@ -282,13 +282,20 @@ impl CoC7eApp {
         });
     }
 
+    fn has_complete_characteristic_roll_evidence(&self) -> bool {
+        self.char_rolls.len() == Characteristic::COUNT
+            && CHARACTERISTICS.iter().all(|def| {
+                self.chars.get_char(def.key) > 0 && self.char_rolls.contains_key(def.key.key())
+            })
+    }
+
     pub(crate) fn normalize_characteristic_method_after_sanitization(
         &mut self,
         had_roll_evidence_before_sanitization: bool,
     ) -> bool {
         if self.char_method != CharMethod::Roll
             || !had_roll_evidence_before_sanitization
-            || !self.char_rolls.is_empty()
+            || self.has_complete_characteristic_roll_evidence()
         {
             return false;
         }
