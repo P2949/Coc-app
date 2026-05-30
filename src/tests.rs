@@ -2409,6 +2409,51 @@ fn json_import_sanitizes_characteristics_and_stale_rolls() {
 }
 
 #[test]
+fn json_import_normalizes_roll_method_when_roll_evidence_is_removed() {
+    let mut source = test_app();
+    source.apply_characteristic_preset(
+        CharMethod::QuickArray,
+        &[
+            ("STR", 50),
+            ("CON", 50),
+            ("SIZ", 60),
+            ("DEX", 50),
+            ("APP", 50),
+            ("INT", 70),
+            ("POW", 60),
+            ("EDU", 80),
+        ],
+    );
+    let mut save = source.save_file();
+    save.char_method = CharMethod::Roll;
+    save.char_rolls.clear();
+    save.char_rolls.insert(
+        "STR".to_owned(),
+        DiceResult {
+            rolls: vec![1, 1, 1],
+            plus_six: false,
+            value: 15,
+            kept: None,
+        },
+    );
+
+    let json = serde_json::to_string(&save).expect("test save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&json)
+        .expect("save with stale roll method should import");
+
+    assert_eq!(loaded.char_method, CharMethod::Mixed);
+    assert!(
+        report
+            .normalized_import_fields
+            .iter()
+            .any(|entry| entry.contains("char_method: Roll → Mixed")),
+        "expected char_method normalization report, got {report:?}"
+    );
+}
+
+#[test]
 fn json_import_recomputes_edu_bonus_from_imported_rolls() {
     let source = test_app();
     let mut save = source.save_file();
@@ -2432,20 +2477,23 @@ fn json_import_recomputes_edu_bonus_from_imported_rolls() {
 
     let json = serde_json::to_string(&save).expect("test save should serialize");
     let mut loaded = test_app();
-    loaded
+    let report = loaded
         .import_json_save(&json)
         .expect("sanitized save should import");
 
     assert_eq!(loaded.edu_bonus, 7);
-    assert_eq!(loaded.edu_check_rolls.len(), 2);
+    assert_eq!(loaded.edu_check_rolls.len(), 1);
     assert_eq!(loaded.edu_check_rolls[0].d100, 100);
     assert!(loaded.edu_check_rolls[0].improved);
     assert_eq!(loaded.edu_check_rolls[0].gain, 7);
     assert_eq!(loaded.edu_check_rolls[0].resulting_edu, 47);
-    assert_eq!(loaded.edu_check_rolls[1].d100, 1);
-    assert!(!loaded.edu_check_rolls[1].improved);
-    assert_eq!(loaded.edu_check_rolls[1].gain, 0);
-    assert_eq!(loaded.edu_check_rolls[1].resulting_edu, 47);
+    assert!(
+        report
+            .removed_unknown_import_entries
+            .iter()
+            .any(|entry| entry.contains("edu_check_rolls[1].d100: expected 1..=100")),
+        "expected invalid d100 report, got {report:?}"
+    );
 }
 
 #[test]
@@ -4203,6 +4251,18 @@ fn json_import_drops_edu_check_rolls_without_valid_d100() {
             "d100": "100"
         },
         {
+            "d100": 200,
+            "gain": 7
+        },
+        {
+            "d100": "100",
+            "gain": 0
+        },
+        {
+            "d100": 100,
+            "gain": 11
+        },
+        {
             "d100": "100",
             "improved": false,
             "gain": "7",
@@ -4227,6 +4287,9 @@ fn json_import_drops_edu_check_rolls_without_valid_d100() {
         "edu_check_rolls[1]: missing required d100",
         "edu_check_rolls[2].d100: expected integer",
         "edu_check_rolls[3]: missing required gain",
+        "edu_check_rolls[4].d100: expected 1..=100",
+        "gain: expected 1..=10 for improved check",
+        "edu_check_rolls[6].gain: expected 0..=10",
     ] {
         assert!(
             report

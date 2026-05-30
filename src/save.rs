@@ -105,6 +105,15 @@ fn save_temp_dir_for(path: &Path) -> &Path {
         .unwrap_or_else(|| Path::new("."))
 }
 
+#[cfg(unix)]
+fn sync_parent_dir_after_save(path: &Path) {
+    let temp_dir = save_temp_dir_for(path);
+    let _ = std::fs::File::open(temp_dir).and_then(|dir| dir.sync_all());
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir_after_save(_path: &Path) {}
+
 fn write_json_atomically(path: &Path, json: &str) -> Result<(), String> {
     let temp_dir = save_temp_dir_for(path);
     let mut temp = NamedTempFile::new_in(temp_dir).map_err(|error| {
@@ -133,16 +142,19 @@ fn write_json_atomically(path: &Path, json: &str) -> Result<(), String> {
             error.error
         )
     })?;
+    sync_parent_dir_after_save(path);
     Ok(())
 }
 
-fn import_value_is_i32(value: &serde_json::Value) -> bool {
+fn parse_i32_import_report_value(value: &serde_json::Value) -> Option<i32> {
     value
         .as_i64()
-        .is_some_and(|value| i32::try_from(value).is_ok())
-        || value
-            .as_str()
-            .is_some_and(|value| value.trim().parse::<i32>().is_ok())
+        .and_then(|value| i32::try_from(value).ok())
+        .or_else(|| value.as_str()?.trim().parse::<i32>().ok())
+}
+
+fn import_value_is_i32(value: &serde_json::Value) -> bool {
+    parse_i32_import_report_value(value).is_some()
 }
 
 fn import_value_is_non_negative_usize(value: &serde_json::Value) -> bool {
@@ -316,23 +328,29 @@ fn report_invalid_edu_check_rolls(raw: &serde_json::Value, unknown: &mut Vec<Str
             unknown.push(format!("edu_check_rolls[{index}]: expected object"));
             continue;
         };
-        match roll.get("d100") {
-            Some(raw) if !import_value_is_i32(raw) => {
+        match roll.get("d100").and_then(parse_i32_import_report_value) {
+            Some(d100) if !(1..=100).contains(&d100) => {
+                unknown.push(format!("edu_check_rolls[{index}].d100: expected 1..=100"));
+            }
+            Some(_) => {}
+            None if roll.get("d100").is_some() => {
                 unknown.push(format!("edu_check_rolls[{index}].d100: expected integer"));
             }
             None => {
                 unknown.push(format!("edu_check_rolls[{index}]: missing required d100"));
             }
-            Some(_) => {}
         }
-        match roll.get("gain") {
-            Some(raw) if !import_value_is_i32(raw) => {
+        match roll.get("gain").and_then(parse_i32_import_report_value) {
+            Some(gain) if !(0..=10).contains(&gain) => {
+                unknown.push(format!("edu_check_rolls[{index}].gain: expected 0..=10"));
+            }
+            Some(_) => {}
+            None if roll.get("gain").is_some() => {
                 unknown.push(format!("edu_check_rolls[{index}].gain: expected integer"));
             }
             None => {
                 unknown.push(format!("edu_check_rolls[{index}]: missing required gain"));
             }
-            Some(_) => {}
         }
         if let Some(raw) = roll.get("resulting_edu")
             && !import_value_is_i32(raw)

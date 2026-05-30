@@ -35,8 +35,16 @@ env:
 
 jobs:
   verify:
-    name: Verify release source
-    runs-on: ubuntu-latest
+    name: Verify release source (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
 
     steps:
       - name: Check out repository
@@ -48,6 +56,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && inputs.tag || github.ref }}
 
       - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \

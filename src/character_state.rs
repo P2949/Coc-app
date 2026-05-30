@@ -282,6 +282,21 @@ impl CoC7eApp {
         });
     }
 
+    pub(crate) fn normalize_characteristic_method_after_sanitization(
+        &mut self,
+        had_roll_evidence_before_sanitization: bool,
+    ) -> bool {
+        if self.char_method != CharMethod::Roll
+            || !had_roll_evidence_before_sanitization
+            || !self.char_rolls.is_empty()
+        {
+            return false;
+        }
+
+        self.char_method = CharMethod::Mixed;
+        true
+    }
+
     pub(crate) fn sanitize_luck_state(&mut self) {
         let expected_attempts = if self.age_bracket().luck_advantage {
             2
@@ -318,25 +333,43 @@ impl CoC7eApp {
         self.luck_state.rolls = attempts;
     }
 
-    pub(crate) fn sanitize_edu_age_checks(&mut self) {
+    pub(crate) fn sanitize_edu_age_checks(&mut self) -> Vec<String> {
         let bracket = self.age_bracket();
-        self.edu_check_rolls.truncate(bracket.edu_checks);
 
         if bracket.edu_checks == 0 || self.chars.get_char(Characteristic::Edu) <= 0 {
             self.edu_bonus = 0;
             self.edu_check_rolls.clear();
-            return;
+            return Vec::new();
         }
 
         let starting_edu = (self.chars.get_char(Characteristic::Edu) - bracket.edu_penalty)
             .clamp(1, MAX_CREATION_VALUE);
         let mut current_edu = starting_edu;
         let mut sanitized = Vec::new();
+        let mut removed = Vec::new();
 
-        for roll in &self.edu_check_rolls {
-            let d100 = roll.d100.clamp(1, 100);
+        for (index, roll) in self.edu_check_rolls.iter().enumerate() {
+            if sanitized.len() == bracket.edu_checks {
+                break;
+            }
+            let d100 = roll.d100;
+            if !(1..=100).contains(&d100) {
+                removed.push(format!("edu_check_rolls[{index}].d100: expected 1..=100"));
+                continue;
+            }
+
             let improved = d100 > current_edu;
-            let gain = if improved { roll.gain.clamp(1, 10) } else { 0 };
+            let gain = if improved {
+                if !(1..=10).contains(&roll.gain) {
+                    removed.push(format!(
+                        "edu_check_rolls[{index}].gain: expected 1..=10 for improved check"
+                    ));
+                    continue;
+                }
+                roll.gain
+            } else {
+                0
+            };
             current_edu = (current_edu + gain).clamp(1, MAX_CREATION_VALUE);
 
             sanitized.push(EduCheckRoll {
@@ -349,6 +382,7 @@ impl CoC7eApp {
 
         self.edu_bonus = (current_edu - starting_edu).max(0);
         self.edu_check_rolls = sanitized;
+        removed
     }
 
     pub(crate) fn physical_deduction_source_label(&self) -> String {

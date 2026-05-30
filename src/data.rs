@@ -1041,7 +1041,13 @@ where
 fn parse_edu_check_roll(value: &serde_json::Value) -> Option<EduCheckRoll> {
     let object = value.as_object()?;
     let d100 = object.get("d100").and_then(parse_i32_import_value)?;
+    if !(1..=100).contains(&d100) {
+        return None;
+    }
     let gain = object.get("gain").and_then(parse_i32_import_value)?;
+    if !(0..=10).contains(&gain) {
+        return None;
+    }
 
     Some(EduCheckRoll {
         d100,

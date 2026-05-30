@@ -763,9 +763,12 @@ impl CoC7eApp {
             self.formula_key = FormulaKey::Edu4;
         }
 
+        let had_characteristic_roll_evidence = !char_rolls_before.is_empty();
         self.sanitize_characteristics();
+        let normalized_characteristic_method = self
+            .normalize_characteristic_method_after_sanitization(had_characteristic_roll_evidence);
         self.sanitize_luck_state();
-        self.sanitize_edu_age_checks();
+        let removed_edu_checks = self.sanitize_edu_age_checks();
         self.sanitize_age_deductions();
         let mut report = self.sanitize_allocations_with_report();
 
@@ -787,6 +790,14 @@ impl CoC7eApp {
         report.reset_luck = report.normalized_luck && self.luck_state.value.is_none();
         report.normalized_edu_checks =
             edu_checks_before != self.edu_check_rolls || edu_bonus_before != self.edu_bonus;
+        report
+            .removed_unknown_import_entries
+            .extend(removed_edu_checks);
+        if normalized_characteristic_method {
+            report
+                .normalized_import_fields
+                .push("char_method: Roll → Mixed".to_owned());
+        }
         report.normalized_age_deductions = age_deductions_before != self.age_deductions;
         report.normalized_formula = formula_before != self.formula_key;
         report.normalized_custom_occupation = custom_before.name.trim()
