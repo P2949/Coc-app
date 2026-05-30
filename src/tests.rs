@@ -3825,6 +3825,29 @@ fn json_file_helpers_round_trip_save_data() {
 }
 
 #[test]
+fn json_file_helpers_overwrite_existing_save_with_complete_json() {
+    let mut source = test_app();
+    source.concept.name = "First Save".to_owned();
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "coc7e_investigator_creator_test_{}_overwrite.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+
+    std::fs::write(&path, "not valid json").expect("test should create placeholder file");
+    source
+        .save_json_to_path(&path)
+        .expect("save file should replace an existing file");
+
+    let saved = std::fs::read_to_string(&path).expect("save file should be readable");
+    let _ = std::fs::remove_file(&path);
+    let value: serde_json::Value = serde_json::from_str(&saved)
+        .expect("overwritten save should be complete JSON, not a partial write");
+    assert_eq!(value["concept"]["name"], serde_json::json!("First Save"));
+}
+
+#[test]
 fn rng_seed_is_saved_and_restored() {
     let source = test_app();
     let json = source.export_json_save().expect("save should serialize");
@@ -3853,6 +3876,40 @@ fn legacy_custom_skill_labels_cannot_duplicate_visible_skill_rows_after_import()
         .insert("Pilot".to_owned(), "Library Use".to_owned());
 
     app.sanitize_state();
+
+    assert!(!app.custom_occupation.skill_labels.contains_key("Pilot"));
+    let row_names = app
+        .sheet_math()
+        .skill_rows
+        .into_iter()
+        .map(|row| row.name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Library Use")
+            .count(),
+        1
+    );
+    assert_eq!(
+        row_names
+            .iter()
+            .filter(|name| name.as_str() == "Pilot")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn setting_custom_skill_sanitizes_latent_legacy_label_collisions() {
+    let mut app = test_app();
+    app.set_occupation(CUSTOM_OCCUPATION_ID.to_owned());
+    app.set_custom_occupation_required_skill_count(2);
+    app.custom_occupation
+        .skill_labels
+        .insert("Pilot".to_owned(), "Library Use".to_owned());
+
+    assert!(app.set_custom_occupation_skill(1, "Pilot".to_owned()));
 
     assert!(!app.custom_occupation.skill_labels.contains_key("Pilot"));
     let row_names = app
@@ -4143,6 +4200,9 @@ fn json_import_drops_edu_check_rolls_without_valid_d100() {
             "resulting_edu": 47
         },
         {
+            "d100": "100"
+        },
+        {
             "d100": "100",
             "improved": false,
             "gain": "7",
@@ -4166,6 +4226,7 @@ fn json_import_drops_edu_check_rolls_without_valid_d100() {
         "edu_check_rolls[0]: missing required d100",
         "edu_check_rolls[1]: missing required d100",
         "edu_check_rolls[2].d100: expected integer",
+        "edu_check_rolls[3]: missing required gain",
     ] {
         assert!(
             report

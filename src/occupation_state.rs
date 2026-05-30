@@ -579,6 +579,7 @@ impl CoC7eApp {
         if normalized.is_empty() {
             self.custom_occupation.skill_slot_labels.remove(&index);
             self.custom_occupation.skills[index].clear();
+            self.sanitize_custom_occupation();
             self.prune_occupation_allocations();
             return true;
         }
@@ -593,7 +594,7 @@ impl CoC7eApp {
             self.allocations.custom_personal_points.remove(&index);
         }
         self.custom_occupation.skills[index] = normalized;
-        self.ensure_distinct_slot_labels_for_active_duplicates(new_skill);
+        self.sanitize_custom_occupation();
         self.prune_occupation_allocations();
         true
     }

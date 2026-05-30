@@ -2,7 +2,9 @@ use super::data::*;
 use super::models::*;
 use super::ruleset::BACKSTORY_CATEGORIES;
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::Path;
+use tempfile::NamedTempFile;
 
 fn migrate_legacy_to_current(value: &mut serde_json::Value) {
     if let Some(object) = value.as_object_mut() {
@@ -94,6 +96,43 @@ fn validate_json_path_for_load(path: &Path) -> Result<(), String> {
             path.display()
         ));
     }
+    Ok(())
+}
+
+fn save_temp_dir_for(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn write_json_atomically(path: &Path, json: &str) -> Result<(), String> {
+    let temp_dir = save_temp_dir_for(path);
+    let mut temp = NamedTempFile::new_in(temp_dir).map_err(|error| {
+        format!(
+            "could not create temporary save file in {}: {error}",
+            temp_dir.display()
+        )
+    })?;
+
+    temp.write_all(json.as_bytes()).map_err(|error| {
+        format!(
+            "could not write temporary JSON save for {}: {error}",
+            path.display()
+        )
+    })?;
+    temp.as_file().sync_all().map_err(|error| {
+        format!(
+            "could not flush temporary JSON save for {}: {error}",
+            path.display()
+        )
+    })?;
+    temp.persist(path).map_err(|error| {
+        format!(
+            "could not replace JSON save at {}: {}",
+            path.display(),
+            error.error
+        )
+    })?;
     Ok(())
 }
 
@@ -286,14 +325,21 @@ fn report_invalid_edu_check_rolls(raw: &serde_json::Value, unknown: &mut Vec<Str
             }
             Some(_) => {}
         }
-        for field in ["gain", "resulting_edu"] {
-            if let Some(raw) = roll.get(field)
-                && !import_value_is_i32(raw)
-            {
-                unknown.push(format!(
-                    "edu_check_rolls[{index}].{field}: expected integer"
-                ));
+        match roll.get("gain") {
+            Some(raw) if !import_value_is_i32(raw) => {
+                unknown.push(format!("edu_check_rolls[{index}].gain: expected integer"));
             }
+            None => {
+                unknown.push(format!("edu_check_rolls[{index}]: missing required gain"));
+            }
+            Some(_) => {}
+        }
+        if let Some(raw) = roll.get("resulting_edu")
+            && !import_value_is_i32(raw)
+        {
+            unknown.push(format!(
+                "edu_check_rolls[{index}].resulting_edu: expected integer"
+            ));
         }
         if let Some(raw) = roll.get("improved")
             && !import_value_is_bool(raw)
@@ -632,8 +678,7 @@ impl CoC7eApp {
         let json = self
             .export_json_save()
             .map_err(|error| format!("could not build JSON save: {error}"))?;
-        std::fs::write(path, json)
-            .map_err(|error| format!("could not write JSON save to {}: {error}", path.display()))
+        write_json_atomically(path, &json)
     }
 
     pub(crate) fn load_json_from_path(&mut self, path: &Path) -> Result<SanitizeReport, String> {
