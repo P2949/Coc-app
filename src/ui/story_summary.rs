@@ -203,21 +203,23 @@ impl CoC7eApp {
                         "Occupation resolved".to_owned()
                     },
                 );
-                rule_check(
-                    ui,
-                    if used_occ == occ_budget {
-                        CheckState::Pass
-                    } else {
-                        CheckState::Fail
-                    },
-                    if has_occupation && occ_budget > occupation_capacity {
-                        format!(
-                            "Occupation points impossible: cap {occupation_capacity}/{occ_budget}"
-                        )
-                    } else {
-                        format!("Occupation points {used_occ}/{occ_budget}")
-                    },
-                );
+                if has_occupation {
+                    rule_check(
+                        ui,
+                        if used_occ == occ_budget {
+                            CheckState::Pass
+                        } else {
+                            CheckState::Fail
+                        },
+                        if occ_budget > occupation_capacity {
+                            format!(
+                                "Occupation points impossible: cap {occupation_capacity}/{occ_budget}"
+                            )
+                        } else {
+                            format!("Occupation points {used_occ}/{occ_budget}")
+                        },
+                    );
+                }
                 rule_check(
                     ui,
                     if used_personal == personal_budget {

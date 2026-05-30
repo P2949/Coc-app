@@ -33,7 +33,8 @@ fn normalize_imported_rng_roll_history(roll_sides: Vec<u32>) -> (Vec<u32>, bool)
 }
 
 fn path_uses_unexpanded_home(path: &Path) -> bool {
-    path.as_os_str().to_string_lossy().starts_with('~')
+    let path = path.as_os_str().to_string_lossy();
+    path == "~" || path.starts_with("~/") || path.starts_with("~\\")
 }
 
 fn validate_json_path_for_save(path: &Path) -> Result<(), String> {
@@ -162,6 +163,13 @@ fn report_invalid_characteristic_values(
     unknown: &mut Vec<String>,
 ) {
     if let Some(values) = raw.as_array() {
+        if values.len() != Characteristic::COUNT {
+            unknown.push(format!(
+                "{field}: expected {} ordered values, got {}",
+                Characteristic::COUNT,
+                values.len()
+            ));
+        }
         for (index, value) in values.iter().take(Characteristic::COUNT).enumerate() {
             if !import_value_is_i32(value) {
                 unknown.push(format!("{field}[{index}]: expected integer"));
@@ -184,6 +192,13 @@ fn report_invalid_characteristic_values(
             ));
         }
         if let Some(values) = values.as_array() {
+            if values.len() != Characteristic::COUNT {
+                unknown.push(format!(
+                    "{field}.values: expected {} ordered values, got {}",
+                    Characteristic::COUNT,
+                    values.len()
+                ));
+            }
             for (index, value) in values.iter().take(Characteristic::COUNT).enumerate() {
                 if !import_value_is_i32(value) {
                     unknown.push(format!("{field}.values[{index}]: expected integer"));
@@ -262,7 +277,16 @@ fn report_invalid_edu_check_rolls(raw: &serde_json::Value, unknown: &mut Vec<Str
             unknown.push(format!("edu_check_rolls[{index}]: expected object"));
             continue;
         };
-        for field in ["d100", "gain", "resulting_edu"] {
+        match roll.get("d100") {
+            Some(raw) if !import_value_is_i32(raw) => {
+                unknown.push(format!("edu_check_rolls[{index}].d100: expected integer"));
+            }
+            None => {
+                unknown.push(format!("edu_check_rolls[{index}]: missing required d100"));
+            }
+            Some(_) => {}
+        }
+        for field in ["gain", "resulting_edu"] {
             if let Some(raw) = roll.get(field)
                 && !import_value_is_i32(raw)
             {

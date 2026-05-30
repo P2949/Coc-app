@@ -4093,6 +4093,13 @@ fn json_file_helpers_reject_unexpanded_home_and_bad_paths() {
         .expect_err("unexpanded home paths should be rejected explicitly");
     assert!(home_error.contains("~ is not expanded"));
 
+    let relative_tilde_file_name = format!("~draft_{}.json", std::process::id());
+    let relative_tilde_path = std::path::Path::new(&relative_tilde_file_name);
+    let _ = std::fs::remove_file(relative_tilde_path);
+    app.save_json_to_path(relative_tilde_path)
+        .expect("relative filenames that merely start with ~ should still be valid");
+    let _ = std::fs::remove_file(relative_tilde_path);
+
     let mut missing_parent = std::env::temp_dir();
     missing_parent.push(format!("coc7e_missing_parent_{}_save", std::process::id()));
     let _ = std::fs::remove_dir_all(&missing_parent);
@@ -4114,4 +4121,93 @@ fn json_file_helpers_reject_unexpanded_home_and_bad_paths() {
         .load_json_from_path(&missing_file)
         .expect_err("loads should explain missing files before reading");
     assert!(missing_file_error.contains("save file does not exist"));
+}
+
+#[test]
+fn json_import_drops_edu_check_rolls_without_valid_d100() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+
+    value["concept"]["age"] = serde_json::json!(40);
+    value["chars"]["EDU"] = serde_json::json!(40);
+    value["edu_check_rolls"] = serde_json::json!([
+        {},
+        {
+            "gain": 7,
+            "resulting_edu": 47
+        },
+        {
+            "d100": false,
+            "gain": 7,
+            "resulting_edu": 47
+        },
+        {
+            "d100": "100",
+            "improved": false,
+            "gain": "7",
+            "resulting_edu": 99
+        }
+    ]);
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("missing EDU check evidence should be reported and dropped");
+
+    assert_eq!(loaded.edu_check_rolls.len(), 1);
+    assert_eq!(loaded.edu_check_rolls[0].d100, 100);
+    assert!(loaded.edu_check_rolls[0].improved);
+    assert_eq!(loaded.edu_check_rolls[0].gain, 7);
+    assert_eq!(loaded.edu_check_rolls[0].resulting_edu, 47);
+
+    for expected in [
+        "edu_check_rolls[0]: missing required d100",
+        "edu_check_rolls[1]: missing required d100",
+        "edu_check_rolls[2].d100: expected integer",
+    ] {
+        assert!(
+            report
+                .removed_unknown_import_entries
+                .iter()
+                .any(|entry| entry.contains(expected)),
+            "expected {expected:?} report, got {report:?}"
+        );
+    }
+}
+
+#[test]
+fn json_import_reports_wrong_length_legacy_characteristic_arrays() {
+    let app = test_app();
+    let json = app.export_json_save().expect("save should serialize");
+    let mut value: serde_json::Value = serde_json::from_str(&json).expect("save should parse");
+
+    value["chars"] = serde_json::json!([50, 55]);
+    value["age_deductions"] = serde_json::json!({
+        "values": [0, 5]
+    });
+
+    let edited_json = serde_json::to_string(&value).expect("edited save should serialize");
+    let mut loaded = test_app();
+    let report = loaded
+        .import_json_save(&edited_json)
+        .expect("wrong-length legacy arrays should still import tolerantly");
+
+    assert_eq!(loaded.chars.get_char(Characteristic::Str), 50);
+    assert_eq!(loaded.chars.get_char(Characteristic::Con), 55);
+    assert_eq!(loaded.chars.get_char(Characteristic::Siz), 0);
+
+    for expected in [
+        "chars: expected 8 ordered values, got 2",
+        "age_deductions.values: expected 8 ordered values, got 2",
+    ] {
+        assert!(
+            report
+                .removed_unknown_import_entries
+                .iter()
+                .any(|entry| entry.contains(expected)),
+            "expected {expected:?} report, got {report:?}"
+        );
+    }
 }

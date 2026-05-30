@@ -1040,11 +1040,10 @@ where
 
 fn parse_edu_check_roll(value: &serde_json::Value) -> Option<EduCheckRoll> {
     let object = value.as_object()?;
+    let d100 = object.get("d100").and_then(parse_i32_import_value)?;
+
     Some(EduCheckRoll {
-        d100: object
-            .get("d100")
-            .and_then(parse_i32_import_value)
-            .unwrap_or_default(),
+        d100,
         improved: object
             .get("improved")
             .and_then(parse_bool_import_value)
