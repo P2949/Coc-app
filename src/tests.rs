@@ -1933,6 +1933,44 @@ fn summary_generation_method_check_is_method_aware() {
 }
 
 #[test]
+fn credit_rating_range_check_is_range_aware() {
+    let mut app = test_app();
+
+    assert_eq!(
+        CoC7eApp::credit_rating_range_check_for(&app.sheet_math()),
+        (
+            CheckState::Warn,
+            "Credit Rating 0% (choose occupation)".to_owned()
+        )
+    );
+
+    app.set_occupation("Author".to_owned());
+    assert_eq!(
+        CoC7eApp::credit_rating_range_check_for(&app.sheet_math()),
+        (CheckState::Fail, "Credit Rating 0% (needs 9–30)".to_owned())
+    );
+
+    app.allocations
+        .occupation_points
+        .insert(Skill::CreditRating, 9);
+    assert_eq!(
+        CoC7eApp::credit_rating_range_check_for(&app.sheet_math()),
+        (CheckState::Pass, "Credit Rating 9% (range 9–30)".to_owned())
+    );
+
+    app.allocations
+        .occupation_points
+        .insert(Skill::CreditRating, 31);
+    assert_eq!(
+        CoC7eApp::credit_rating_range_check_for(&app.sheet_math()),
+        (
+            CheckState::Fail,
+            "Credit Rating 31% (needs 9–30)".to_owned()
+        )
+    );
+}
+
+#[test]
 fn summary_blockers_prevent_copying_incomplete_sheet() {
     let mut app = test_app();
     app.apply_characteristic_preset(

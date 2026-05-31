@@ -47,8 +47,6 @@ impl CoC7eApp {
             let used_occ = CoC7eApp::used_occupation_points_from(&math.skill_rows);
             let occupation_capacity = CoC7eApp::occupation_budget_capacity_from(&math);
             let used_personal = CoC7eApp::used_personal_points_from(&math.skill_rows);
-            let credit = math.credit_rating;
-            let (credit_min, credit_max) = math.credit_range;
             let no_occupation = math.selected_occupation.is_none();
             let unresolved = math.unresolved_choices;
             let shortfall = math.occupation_shortfall;
@@ -83,22 +81,8 @@ impl CoC7eApp {
                         GREEN
                     },
                 );
-                pill(
-                    ui,
-                    format!(
-                        "Credit Rating {credit}%{}",
-                        if !no_occupation {
-                            format!(" (needs {credit_min}–{credit_max})")
-                        } else {
-                            String::new()
-                        }
-                    ),
-                    if !no_occupation && (credit < credit_min || credit > credit_max) {
-                        RED
-                    } else {
-                        AMBER
-                    },
-                );
+                let (credit_state, credit_label) = CoC7eApp::credit_rating_range_check_for(&math);
+                rule_check(ui, credit_state, credit_label);
                 if skills_over_99 {
                     pill(ui, "A skill exceeds 99", RED);
                 }

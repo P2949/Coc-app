@@ -52,6 +52,29 @@ impl CoC7eApp {
         }
     }
 
+    pub(crate) fn credit_rating_range_check_for(math: &SheetMath) -> (CheckState, String) {
+        let credit = math.credit_rating;
+        if math.selected_occupation.is_none() {
+            return (
+                CheckState::Warn,
+                format!("Credit Rating {credit}% (choose occupation)"),
+            );
+        }
+
+        let (credit_min, credit_max) = math.credit_range;
+        if (credit_min..=credit_max).contains(&credit) {
+            (
+                CheckState::Pass,
+                format!("Credit Rating {credit}% (range {credit_min}–{credit_max})"),
+            )
+        } else {
+            (
+                CheckState::Fail,
+                format!("Credit Rating {credit}% (needs {credit_min}–{credit_max})"),
+            )
+        }
+    }
+
     pub(crate) fn summary_blockers_for(&self, math: &SheetMath) -> Vec<String> {
         let mut blockers = Vec::new();
         let bracket = self.age_bracket();
