@@ -20,7 +20,7 @@ impl CoC7eApp {
                         ui,
                         "Investigator name",
                         &mut self.concept.name,
-                        "Harvey Walters",
+                        "e.g., Harvey Walters",
                     );
                     let mut age = self.concept.age;
                     if labeled_i32(ui, "Age 15–89", &mut age, 15, 89, 1.0).changed() {
@@ -33,13 +33,18 @@ impl CoC7eApp {
                         &mut self.concept.pronouns,
                         "Optional",
                     );
-                    labeled_text(ui, "Residence", &mut self.concept.residence, "Arkham, MA");
+                    labeled_text(
+                        ui,
+                        "Residence",
+                        &mut self.concept.residence,
+                        "e.g., Arkham, MA",
+                    );
                     ui.end_row();
                     labeled_text(
                         ui,
                         "Birthplace",
                         &mut self.concept.birthplace,
-                        "Boston, Massachusetts",
+                        "e.g., Boston, Massachusetts",
                     );
                     ui.end_row();
                 });
